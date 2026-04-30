@@ -1,0 +1,224 @@
+import { useEffect, useRef, useState } from 'react'
+import { supabase } from '../../lib/supabase'
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
+import { listen } from '@tauri-apps/api/event'
+
+const SYNC_INTERVAL = 60000
+const INACTIVITY_TIMEOUT = 180000
+
+function calcStage(clicks: number): number {
+  if (clicks >= 50000) return 5
+  if (clicks >= 25000) return 4
+  if (clicks >= 5000)  return 3
+  if (clicks >= 1000)  return 2
+  return 1
+}
+
+export default function PetOverlay() {
+  const params = new URLSearchParams(window.location.search)
+  const [userPetId, setUserPetId] = useState(params.get('pet') ?? '')
+
+  const [totalClicks, setTotalClicks] = useState(0)
+  const [stage, setStage] = useState(1)
+  const [animation, setAnimation] = useState<
+    'idle' | 'click' | 'rapid' | 'sleep' | 'potion'
+  >('idle')
+
+  const pendingRef = useRef(0)
+  const lastClickTime = useRef(0)
+  const clickCountRef = useRef(0)
+  const animTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const inactivityTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const totalRef = useRef(0)
+  const stageRef = useRef(1)
+  const animationRef = useRef<typeof animation>('idle')
+
+  // Mantener refs sincronizadas
+  useEffect(() => { animationRef.current = animation }, [animation])
+  useEffect(() => { stageRef.current = stage }, [stage])
+
+  // Cargar datos iniciales
+  useEffect(() => {
+    if (!userPetId) return
+    loadPetData(userPetId)
+  }, [userPetId])
+
+  // Escuchar pet-id desde Rust (cuando el dashboard lo envía)
+  useEffect(() => {
+    const unlisten = listen<string>('pet-id', (event) => {
+      setUserPetId(event.payload)
+    })
+    return () => { unlisten.then(fn => fn()) }
+  }, [])
+
+  // Escuchar clicks globales desde Rust
+  useEffect(() => {
+    const unlisten = listen('global-click', () => {
+      registerClick()
+    })
+    return () => { unlisten.then(fn => fn()) }
+  }, [])
+
+  // Sync periódico
+  useEffect(() => {
+    if (!userPetId) return
+    const interval = setInterval(() => syncClicks(userPetId), SYNC_INTERVAL)
+    window.addEventListener('beforeunload', () => syncClicks(userPetId))
+    startInactivityTimer()
+    return () => {
+      clearInterval(interval)
+      if (inactivityTimer.current) clearTimeout(inactivityTimer.current)
+    }
+  }, [userPetId])
+
+  async function loadPetData(petId: string) {
+    const { data } = await supabase
+      .schema('clickpet')
+      .from('user_pets')
+      .select('total_clicks, current_stage')
+      .eq('id', petId)
+      .single()
+    if (data) {
+      setTotalClicks(data.total_clicks)
+      setStage(data.current_stage)
+      totalRef.current = data.total_clicks
+      stageRef.current = data.current_stage
+    }
+  }
+
+  function playAnimation(name: typeof animation, duration = 500) {
+    if (animTimer.current) clearTimeout(animTimer.current)
+    setAnimation(name)
+    animationRef.current = name
+    if (name !== 'sleep') {
+      animTimer.current = setTimeout(() => {
+        setAnimation('idle')
+        animationRef.current = 'idle'
+      }, duration)
+    }
+  }
+
+  function startInactivityTimer() {
+    if (inactivityTimer.current) clearTimeout(inactivityTimer.current)
+    inactivityTimer.current = setTimeout(() => {
+      playAnimation('sleep', 999999)
+    }, INACTIVITY_TIMEOUT)
+  }
+
+  async function syncClicks(petId: string) {
+    if (pendingRef.current === 0 || !petId) return
+    const toSync = pendingRef.current
+    pendingRef.current = 0
+    await supabase.rpc('sync_clicks', {
+      p_user_pet_id: petId,
+      p_clicks: toSync,
+    })
+  }
+
+  function registerClick() {
+    startInactivityTimer()
+    if (animationRef.current === 'sleep') {
+      setAnimation('idle')
+      animationRef.current = 'idle'
+    }
+
+    pendingRef.current += 1
+    const newTotal = totalRef.current + 1
+    totalRef.current = newTotal
+    setTotalClicks(newTotal)
+
+    const newStage = calcStage(newTotal)
+    if (newStage !== stageRef.current) {
+      setStage(newStage)
+      stageRef.current = newStage
+    }
+
+    const now = Date.now()
+    if (now - lastClickTime.current < 300) {
+      clickCountRef.current += 1
+      if (clickCountRef.current >= 3) {
+        playAnimation('rapid', 600)
+        clickCountRef.current = 0
+      } else {
+        playAnimation('click', 300)
+      }
+    } else {
+      clickCountRef.current = 1
+      playAnimation('click', 300)
+    }
+    lastClickTime.current = now
+  }
+
+  async function handleDrag(e: React.MouseEvent) {
+    e.stopPropagation()
+    const win = await getCurrentWebviewWindow()
+    await win.startDragging()
+  }
+
+  function handleContextMenu(e: React.MouseEvent) {
+    e.preventDefault()
+  }
+
+  const stageEmoji = ['🟢', '🫧', '👾', '👑', '✨']
+
+  const petStyle: React.CSSProperties = {
+    fontSize: 80,
+    lineHeight: 1,
+    filter: 'drop-shadow(0 4px 16px rgba(74,222,128,0.5))',
+    cursor: 'grab',
+    transform:
+      animation === 'rapid'  ? 'scale(1.35) rotate(-5deg)' :
+      animation === 'click'  ? 'scale(1.15)' :
+      animation === 'sleep'  ? 'scale(0.9)'  :
+      animation === 'potion' ? 'scale(1.4) rotate(10deg)' :
+      'scale(1)',
+    transition: 'transform 0.15s ease',
+    opacity: animation === 'sleep' ? 0.6 : 1,
+  }
+
+  return (
+    <div
+      style={styles.container}
+      onMouseDown={handleDrag}
+      onContextMenu={handleContextMenu}
+    >
+      <div style={petStyle}>
+        {stageEmoji[stage - 1]}
+      </div>
+
+      {animation === 'sleep'  && <div style={styles.badge}>💤</div>}
+      {animation === 'rapid'  && <div style={styles.badge}>✨</div>}
+      {animation === 'potion' && <div style={styles.badge}>🌟</div>}
+
+      <div style={styles.clickCounter}>
+        {totalClicks.toLocaleString()}
+      </div>
+    </div>
+  )
+}
+
+const styles: Record<string, React.CSSProperties> = {
+  container: {
+    width: '100vw',
+    height: '100vh',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    userSelect: 'none',
+    background: 'transparent',
+    position: 'relative',
+    flexDirection: 'column',
+  },
+  badge: {
+    position: 'absolute',
+    fontSize: 22,
+    top: 8,
+    right: 8,
+  },
+  clickCounter: {
+    fontSize: 11,
+    color: 'rgba(74,222,128,0.7)',
+    marginTop: 4,
+    fontFamily: 'monospace',
+  },
+}
