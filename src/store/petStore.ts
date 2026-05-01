@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { UserPet, Profile } from '../types'
+import { UserPet, Profile, PotionInventory } from '../types'
 
 interface PetStore {
   profile: Profile | null
@@ -7,6 +7,7 @@ interface PetStore {
   pendingClicks: number
   isOverlayVisible: boolean
   justEvolved: boolean
+  potions: PotionInventory[]
   setProfile: (profile: Profile) => void
   setActivePet: (pet: UserPet) => void
   addClick: () => void
@@ -14,6 +15,8 @@ interface PetStore {
   setOverlayVisible: (visible: boolean) => void
   updateStage: (stage: number, totalClicks: number) => void
   setJustEvolved: (v: boolean) => void
+  setPotions: (potions: PotionInventory[]) => void
+  updateBalance: (balance: number) => void
 }
 
 export const usePetStore = create<PetStore>((set) => ({
@@ -22,9 +25,14 @@ export const usePetStore = create<PetStore>((set) => ({
   pendingClicks: 0,
   isOverlayVisible: false,
   justEvolved: false,
+  potions: [],
 
   setProfile: (profile) => set({ profile }),
   setActivePet: (pet) => set({ activePet: pet }),
+  setPotions: (potions) => set({ potions }),
+  updateBalance: (balance) => set((state) => ({
+    profile: state.profile ? { ...state.profile, balance } : null
+  })),
 
   addClick: () => set((state) => {
     if (!state.activePet) return {}
@@ -54,7 +62,7 @@ export const usePetStore = create<PetStore>((set) => ({
     })),
 }))
 
-function calcStage(clicks: number): number {
+export function calcStage(clicks: number): number {
   if (clicks >= 50000) return 5
   if (clicks >= 25000) return 4
   if (clicks >= 5000)  return 3

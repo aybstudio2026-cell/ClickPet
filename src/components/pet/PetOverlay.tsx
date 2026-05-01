@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { supabase } from '../../lib/supabase'
+import { supabaseClickpet } from '../../lib/supabase'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { listen } from '@tauri-apps/api/event'
+import { invoke } from '@tauri-apps/api/core'
 
-const SYNC_INTERVAL = 60000
+const SYNC_INTERVAL = 30000 // 30 segundos
 const INACTIVITY_TIMEOUT = 180000
 
 function calcStage(clicks: number): number {
@@ -32,10 +33,11 @@ export default function PetOverlay() {
   const totalRef = useRef(0)
   const stageRef = useRef(1)
   const animationRef = useRef<typeof animation>('idle')
+  const userPetIdRef = useRef(userPetId)
 
-  // Mantener refs sincronizadas
   useEffect(() => { animationRef.current = animation }, [animation])
   useEffect(() => { stageRef.current = stage }, [stage])
+  useEffect(() => { userPetIdRef.current = userPetId }, [userPetId])
 
   // Cargar datos iniciales
   useEffect(() => {
@@ -43,7 +45,7 @@ export default function PetOverlay() {
     loadPetData(userPetId)
   }, [userPetId])
 
-  // Escuchar pet-id desde Rust (cuando el dashboard lo envía)
+  // Escuchar pet-id desde Rust
   useEffect(() => {
     const unlisten = listen<string>('pet-id', (event) => {
       setUserPetId(event.payload)
@@ -59,11 +61,11 @@ export default function PetOverlay() {
     return () => { unlisten.then(fn => fn()) }
   }, [])
 
-  // Sync periódico
+  // Sync cada 30 segundos
   useEffect(() => {
     if (!userPetId) return
-    const interval = setInterval(() => syncClicks(userPetId), SYNC_INTERVAL)
-    window.addEventListener('beforeunload', () => syncClicks(userPetId))
+    const interval = setInterval(() => syncClicks(userPetIdRef.current), SYNC_INTERVAL)
+    window.addEventListener('beforeunload', () => syncClicks(userPetIdRef.current))
     startInactivityTimer()
     return () => {
       clearInterval(interval)
@@ -71,9 +73,15 @@ export default function PetOverlay() {
     }
   }, [userPetId])
 
+  useEffect(() => {
+    const unlisten = listen('use-potion', () => {
+      playAnimation('potion', 800)
+    })
+    return () => { unlisten.then(fn => fn()) }
+  }, [])
+
   async function loadPetData(petId: string) {
-    const { data } = await supabase
-      .schema('clickpet')
+    const { data } = await supabaseClickpet
       .from('user_pets')
       .select('total_clicks, current_stage')
       .eq('id', petId)
@@ -83,6 +91,8 @@ export default function PetOverlay() {
       setStage(data.current_stage)
       totalRef.current = data.total_clicks
       stageRef.current = data.current_stage
+      // Sincronizar dashboard con valor inicial
+      await invoke('emit_to_dashboard', { clicks: data.total_clicks })
     }
   }
 
@@ -109,7 +119,7 @@ export default function PetOverlay() {
     if (pendingRef.current === 0 || !petId) return
     const toSync = pendingRef.current
     pendingRef.current = 0
-    await supabase.rpc('sync_clicks', {
+    await supabaseClickpet.rpc('sync_clicks', {
       p_user_pet_id: petId,
       p_clicks: toSync,
     })
@@ -132,6 +142,9 @@ export default function PetOverlay() {
       setStage(newStage)
       stageRef.current = newStage
     }
+
+    // Emitir al dashboard en tiempo real
+    invoke('emit_to_dashboard', { clicks: newTotal }).catch(() => {})
 
     const now = Date.now()
     if (now - lastClickTime.current < 300) {
@@ -185,11 +198,9 @@ export default function PetOverlay() {
       <div style={petStyle}>
         {stageEmoji[stage - 1]}
       </div>
-
       {animation === 'sleep'  && <div style={styles.badge}>💤</div>}
       {animation === 'rapid'  && <div style={styles.badge}>✨</div>}
       {animation === 'potion' && <div style={styles.badge}>🌟</div>}
-
       <div style={styles.clickCounter}>
         {totalClicks.toLocaleString()}
       </div>
@@ -199,26 +210,14 @@ export default function PetOverlay() {
 
 const styles: Record<string, React.CSSProperties> = {
   container: {
-    width: '100vw',
-    height: '100vh',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    userSelect: 'none',
-    background: 'transparent',
-    position: 'relative',
-    flexDirection: 'column',
+    width: '100vw', height: '100vh',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    userSelect: 'none', background: 'transparent',
+    position: 'relative', flexDirection: 'column',
   },
-  badge: {
-    position: 'absolute',
-    fontSize: 22,
-    top: 8,
-    right: 8,
-  },
+  badge: { position: 'absolute', fontSize: 22, top: 8, right: 8 },
   clickCounter: {
-    fontSize: 11,
-    color: 'rgba(74,222,128,0.7)',
-    marginTop: 4,
-    fontFamily: 'monospace',
+    fontSize: 11, color: 'rgba(74,222,128,0.7)',
+    marginTop: 4, fontFamily: 'monospace',
   },
 }
