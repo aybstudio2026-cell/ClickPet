@@ -4,6 +4,7 @@ import { usePetStore, calcStage } from '../store/petStore'
 import { invoke } from '@tauri-apps/api/core'
 import Shop from './Shop'
 import { UserPet } from '../types'
+import UpdateChecker from '../components/UpdateChecker'
 
 const STAGES_REQUIRED = [0, 1000, 5000, 25000, 50000]
 const STAGE_NAMES = ['Slime Semilla', 'Slime Pequeño', 'Slime Joven', 'Slime Rey', 'Slime Legendario']
@@ -219,6 +220,7 @@ export default function Dashboard() {
       {evolveMsg && <div style={s.evolveToast}>{evolveMsg}</div>}
 
       {/* Header */}
+      <UpdateChecker />
       <div style={s.header}>
         <span style={s.logo}>🐾 Click Pet</span>
         <div style={s.headerRight}>

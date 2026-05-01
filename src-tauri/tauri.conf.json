@@ -14,11 +14,13 @@
       {
         "label": "dashboard",
         "title": "Click Pet",
-        "width": 480,
-        "height": 640,
+        "width": 800,
+        "height": 480,
         "resizable": false,
         "center": true,
-        "visible": true
+        "visible": true,
+        "decorations": false,
+        "transparent": false
       },
       {
         "label": "overlay",
@@ -41,13 +43,20 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["msi", "nsis"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": ""
+    },
+    "publisher": "Tu Empresa",
+    "copyright": "Copyright © 2026"
   }
 }

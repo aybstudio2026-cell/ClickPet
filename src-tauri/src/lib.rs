@@ -83,6 +83,11 @@ fn emit_to_dashboard(app: tauri::AppHandle, clicks: u64) {
     }
 }
 
+#[tauri::command]
+fn close_app(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -97,14 +102,53 @@ pub fn run() {
             hide_overlay,
             set_user_pet_id,
             emit_to_dashboard,
+            close_app,
         ])
         .setup(|app| {
-            // Abrir devtools automáticamente en desarrollo
-            #[cfg(debug_assertions)]
-            {
-                let window = app.get_webview_window("dashboard").unwrap();
-                window.open_devtools();
-            }
+            // Tray icon
+            use tauri::tray::{TrayIconBuilder, TrayIconEvent};
+            use tauri::menu::{MenuBuilder, MenuItemBuilder};
+
+            let show = MenuItemBuilder::with_id("show", "Mostrar dashboard").build(app)?;
+            let toggle = MenuItemBuilder::with_id("toggle", "Mostrar/Ocultar mascota").build(app)?;
+            let quit = MenuItemBuilder::with_id("quit", "Salir").build(app)?;
+
+            let menu = MenuBuilder::new(app)
+                .items(&[&show, &toggle, &quit])
+                .build()?;
+
+            let _tray = TrayIconBuilder::new()
+                .icon(app.default_window_icon().unwrap().clone())
+                .menu(&menu)
+                .on_menu_event(|app, event| match event.id().as_ref() {
+                    "show" => {
+                        if let Some(w) = app.get_webview_window("dashboard") {
+                            let _ = w.show();
+                            let _ = w.set_focus();
+                        }
+                    }
+                    "toggle" => {
+                        if let Some(overlay) = app.get_webview_window("overlay") {
+                            if overlay.is_visible().unwrap_or(false) {
+                                let _ = overlay.hide();
+                            } else {
+                                let _ = overlay.show();
+                            }
+                        }
+                    }
+                    "quit" => app.exit(0),
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::DoubleClick { .. } = event {
+                        if let Some(w) = tray.app_handle().get_webview_window("dashboard") {
+                            let _ = w.show();
+                            let _ = w.set_focus();
+                        }
+                    }
+                })
+                .build(app)?;
+
             start_global_click_listener(app.handle().clone());
             Ok(())
         })
