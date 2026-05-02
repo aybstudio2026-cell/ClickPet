@@ -32,6 +32,12 @@ export interface PotionInventory {
   user_id: string
   potion_id: string
   quantity: number
+  potion?: {
+    name: string
+    slug: string
+    click_bonus: number
+    pack_size: number
+  }
 }
 
 export interface Profile {

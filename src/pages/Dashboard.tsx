@@ -22,9 +22,13 @@ const NAV_ITEMS = [
   { id: 'ajustes',    icon: '⚙️', label: 'Ajustes' },
 ]
 
-export default function Dashboard() {
+  interface DashboardProps {
+    openTutorial: () => void
+  }
+
+export default function Dashboard({ openTutorial }: DashboardProps) {
   const {
-    profile, activePet, setActivePet,
+    profile, activePet,
     isOverlayVisible, setOverlayVisible,
     justEvolved, setJustEvolved,
     potions, setPotions,
@@ -59,9 +63,19 @@ export default function Dashboard() {
     if (!activePet) return
     try {
       if (isOverlayVisible) {
-        await invoke('hide_overlay'); setOverlayVisible(false)
+        // Pedir al overlay que sincronice antes de ocultarse
+        const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow')
+        const overlay = await WebviewWindow.getByLabel('overlay')
+        if (overlay) {
+          await overlay.emit('force-sync', {})
+          // Pequeña espera para que el sync complete
+          await new Promise(r => setTimeout(r, 500))
+        }
+        await invoke('hide_overlay')
+        setOverlayVisible(false)
       } else {
-        await invoke('show_overlay', { userPetId: activePet.id }); setOverlayVisible(true)
+        await invoke('show_overlay', { userPetId: activePet.id })
+        setOverlayVisible(true)
       }
     } catch (err) { console.error(err) }
   }
@@ -185,7 +199,6 @@ export default function Dashboard() {
           )}
           {navPage === 'inventario' && (
             <InventoryView
-              onUsePotion={handleUsePotion}
               onGoShop={() => setNavPage('tienda')}
             />
           )}
@@ -198,7 +211,9 @@ export default function Dashboard() {
               onPurchased={refreshAfterPurchase}
             />
           )}
-          {navPage === 'ajustes' && <SettingsView />}
+          {navPage === 'ajustes' && (
+            <SettingsView openTutorial={openTutorial} />
+          )}
         </div>
       </main>
     </div>

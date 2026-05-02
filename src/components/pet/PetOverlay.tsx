@@ -74,8 +74,30 @@ export default function PetOverlay() {
   }, [userPetId])
 
   useEffect(() => {
-    const unlisten = listen('use-potion', () => {
+    const unlisten = listen<{ bonus?: number }>('use-potion', (event) => {
       playAnimation('potion', 800)
+      const bonus = event.payload?.bonus ?? 0
+      if (bonus > 0) {
+        // Sumar clicks localmente en el overlay
+        pendingRef.current += bonus
+        const newTotal = totalRef.current + bonus
+        totalRef.current = newTotal
+        setTotalClicks(newTotal)
+        const newStage = calcStage(newTotal)
+        if (newStage !== stageRef.current) {
+          setStage(newStage)
+          stageRef.current = newStage
+        }
+        // Notificar al dashboard
+        invoke('emit_to_dashboard', { clicks: newTotal }).catch(() => {})
+      }
+    })
+    return () => { unlisten.then(fn => fn()) }
+  }, [])
+
+  useEffect(() => {
+    const unlisten = listen('force-sync', async () => {
+      await syncClicks(userPetIdRef.current)
     })
     return () => { unlisten.then(fn => fn()) }
   }, [])

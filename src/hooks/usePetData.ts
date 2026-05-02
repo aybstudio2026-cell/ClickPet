@@ -14,6 +14,7 @@ export interface ShopPotion {
   slug: string
   price: number
   pack_size: number
+  click_bonus: number
   description: string
   _type: 'potion'
 }
@@ -88,7 +89,10 @@ export function usePetData() {
     }
 
     const { data: inv } = await supabaseClickpet
-      .from('potion_inventory').select('*').eq('user_id', user.id)
+      .from('potion_inventory')
+      .select('*, potion:potions(name, slug, click_bonus, pack_size)')
+      .eq('user_id', user.id)
+      .gt('quantity', 0)
     if (inv) setPotions(inv)
 
     const [potRes, petRes] = await Promise.all([
