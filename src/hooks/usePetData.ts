@@ -3,11 +3,11 @@ import { supabase, supabaseClickpet } from '../lib/supabase'
 import { usePetStore } from '../store/petStore'
 import { invoke } from '@tauri-apps/api/core'
 import { UserPet } from '../types'
+import { useAssets } from './useAssets'
 
 export interface OwnedPet extends UserPet {
-  pet: { name: string; slug: string } | null
+  pet: { name: string; slug: string; asset_base_url?: string } | null
 }
-
 export interface ShopPotion {
   id: string
   name: string
@@ -26,6 +26,7 @@ export interface ShopPet {
   price: number
   description: string
   is_free: boolean
+  asset_base_url?: string
   _type: 'pet'
 }
 
@@ -53,66 +54,97 @@ export function usePetData() {
   const [ownedPetIds, setOwnedPetIds] = useState<string[]>([])
   const [activePetSlug, setActivePetSlug] = useState('slime')
   const [loading, setLoading] = useState(true)
+  const { ensurePetAssets, ensurePotionImage } = useAssets()
 
   async function loadData() {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return
 
-    const { data: profileData } = await supabase
-      .from('profiles').select('*').eq('id', user.id).single()
-    if (profileData) setProfile(profileData)
+  // 1. Perfil
+  const { data: profileData } = await supabase
+    .from('profiles').select('*').eq('id', user.id).single()
+  if (profileData) setProfile(profileData)
 
-    const { data: allPets } = await supabaseClickpet
-      .from('user_pets').select('*, pet:pets(name, slug)').eq('user_id', user.id)
+  // 2. Mascotas del usuario
+  const { data: allPets } = await supabaseClickpet
+    .from('user_pets').select('*, pet:pets(name, slug, asset_base_url)').eq('user_id', user.id)
 
-    if (!allPets || allPets.length === 0) {
-      const { data: slimePet } = await supabaseClickpet
-        .from('pets').select('id').eq('slug', 'slime').single()
-      if (slimePet) {
-        const { data: newPet } = await supabaseClickpet
-          .from('user_pets')
-          .insert({ user_id: user.id, pet_id: slimePet.id })
-          .select('*, pet:pets(name, slug)').single()
-        if (newPet) {
-          setOwnedPets([newPet])
-          setActivePet(newPet)
-          setActivePetSlug('slime')
-          await invoke('set_user_pet_id', { userPetId: newPet.id })
-        }
+  if (!allPets || allPets.length === 0) {
+    // Lógica para crear slime inicial...
+    const { data: slimePet } = await supabaseClickpet
+      .from('pets').select('id, slug, asset_base_url').eq('slug', 'slime').single()
+    if (slimePet) {
+      const { data: newPet } = await supabaseClickpet
+        .from('user_pets')
+        .insert({ user_id: user.id, pet_id: slimePet.id })
+        .select('*, pet:pets(name, slug, asset_base_url)').single()
+      if (newPet) {
+        setOwnedPets([newPet])
+        setActivePet(newPet)
+        setActivePetSlug('slime')
+        await invoke('set_user_pet_id', { userPetId: newPet.id })
+        if (slimePet.asset_base_url) ensurePetAssets('slime', slimePet.asset_base_url)
       }
-    } else {
-      setOwnedPets(allPets)
-      const first = allPets[0]
-      setActivePet(first)
-      setActivePetSlug(first.pet?.slug ?? 'slime')
-      await invoke('set_user_pet_id', { userPetId: first.id })
     }
-
-    const { data: inv } = await supabaseClickpet
-      .from('potion_inventory')
-      .select('*, potion:potions(name, slug, click_bonus, pack_size)')
-      .eq('user_id', user.id)
-      .gt('quantity', 0)
-    if (inv) setPotions(inv)
-
-    const [potRes, petRes] = await Promise.all([
-      supabaseClickpet.from('potions').select('*').order('price'),
-      supabaseClickpet.from('pets').select('*').eq('is_free', false).order('price'),
-    ])
-    if (potRes.data) setShopPotions(potRes.data.map(p => ({ ...p, _type: 'potion' as const })))
-    if (petRes.data) setShopPets(petRes.data.map(p => ({ ...p, _type: 'pet' as const })))
-
-    const { data: ownedRes } = await supabaseClickpet
-      .from('user_pets').select('pet_id').eq('user_id', user.id)
-    if (ownedRes) setOwnedPetIds(ownedRes.map(p => p.pet_id))
-
-    setLoading(false)
+  } else {
+    setOwnedPets(allPets)
+    const first = allPets[0]
+    setActivePet(first)
+    setActivePetSlug(first.pet?.slug ?? 'slime')
+    await invoke('set_user_pet_id', { userPetId: first.id })
+    
+    for (const pet of allPets) {
+      if (pet.pet?.slug && pet.pet.asset_base_url) {
+        ensurePetAssets(pet.pet.slug, pet.pet.asset_base_url)
+      }
+    }
   }
 
+  // 3. Inventario de pociones
+  const { data: inv } = await supabaseClickpet
+    .from('potion_inventory')
+    .select('*, potion:potions(name, slug, click_bonus, pack_size)')
+    .eq('user_id', user.id)
+    .gt('quantity', 0)
+  if (inv) setPotions(inv)
+
+  // 4. DATOS DE LA TIENDA (Aquí se declaran potRes y petRes)
+  const [potRes, petRes] = await Promise.all([
+    supabaseClickpet.from('potions').select('*').order('price'),
+    supabaseClickpet.from('pets').select('*, asset_base_url').eq('is_free', false).order('price'),
+  ])
+
+  // 5. AHORA SÍ puedes usar potRes y petRes
+  if (potRes.data) {
+    setShopPotions(potRes.data.map(p => ({ ...p, _type: 'potion' as const })))
+    // Verificar assets de pociones en tienda
+    for (const potion of potRes.data) {
+      if (potion.image_url) {
+        ensurePotionImage(potion.slug, potion.image_url)
+      }
+    }
+  }
+  
+  if (petRes.data) {
+    setShopPets(petRes.data.map(p => ({ ...p, _type: 'pet' as const })))
+  }
+
+  const { data: ownedRes } = await supabaseClickpet
+    .from('user_pets').select('pet_id').eq('user_id', user.id)
+  if (ownedRes) setOwnedPetIds(ownedRes.map(p => p.pet_id))
+
+  setLoading(false)
+}
   async function switchPet(pet: OwnedPet, isOverlayVisible: boolean) {
     setActivePet(pet)
     setActivePetSlug(pet.pet?.slug ?? 'slime')
     await invoke('set_user_pet_id', { userPetId: pet.id })
+    
+    // Verificar assets al cambiar de mascota activa
+    if (pet.pet?.slug && (pet.pet as any).asset_base_url) {
+      ensurePetAssets(pet.pet.slug, (pet.pet as any).asset_base_url)
+    }
+    
     if (isOverlayVisible) {
       const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow')
       const overlay = await WebviewWindow.getByLabel('overlay')

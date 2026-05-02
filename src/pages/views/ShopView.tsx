@@ -4,6 +4,8 @@ import { usePetStore } from '../../store/petStore'
 import { shopStyles as sh } from '../../styles/dashboard/shop'
 import { layoutStyles as l } from '../../styles/dashboard/layout'
 import { ShopItem, ShopPotion, ShopPet, PET_EMOJIS } from '../../hooks/usePetData'
+import { useAssets } from '../../hooks/useAssets'
+import { useLocalImage } from '../../hooks/useLocalImage'
 
 interface Props {
   shopPotions: ShopPotion[]
@@ -22,9 +24,16 @@ export default function ShopView({
   const [qty, setQty] = useState(1)
   const [buying, setBuying] = useState(false)
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null)
+  const { ensurePetAssets } = useAssets()
 
   function showMsg(text: string, ok: boolean) {
     setMsg({ text, ok }); setTimeout(() => setMsg(null), 3000)
+  }
+
+  function PetShopImage({ slug }: { slug: string }) {
+    const src = useLocalImage(slug, 1, 'idle')
+    if (src) return <img src={src} style={{ width: '42px', height: '42px', objectFit: 'contain' }} />
+    return <div style={{ fontSize: '42px' }}>{PET_EMOJIS[slug]?.[0] ?? '🐾'}</div>
   }
 
   async function buyItem() {
@@ -51,12 +60,21 @@ export default function ShopView({
           }])
         }
         showMsg('✅ ¡Comprado!', true)
-      } else {
+      }
+
+      if (selected._type === 'pet') {
         const { error } = await supabaseClickpet.rpc('purchase_pet', { p_pet_id: selected.id })
         if (error) throw error
         setOwnedPetIds([...ownedPetIds, selected.id])
+        
+        // ← DESCARGA al comprar mascota nueva
+        if ((selected as any).asset_base_url) {
+          ensurePetAssets(selected.slug, (selected as any).asset_base_url)
+        }
+        
         showMsg(`✅ ¡${selected.name} es tuyo!`, true)
       }
+
       onPurchased()
     } catch (e: any) {
       showMsg(e?.message ?? '❌ Error al comprar.', false)

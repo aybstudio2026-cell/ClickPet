@@ -1,6 +1,8 @@
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder, Emitter};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::path::PathBuf;
+use std::fs;
 
 #[derive(Clone)]
 struct AppState {
@@ -103,6 +105,10 @@ pub fn run() {
             set_user_pet_id,
             emit_to_dashboard,
             close_app,
+            check_pet_assets,
+            download_pet_assets,
+            download_potion_image,
+            get_asset_path,
         ])
         .setup(|app| {
             // Tray icon
@@ -154,4 +160,122 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+fn get_assets_dir(app: &tauri::AppHandle) -> PathBuf {
+    app.path().app_data_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .join("assets")
+}
+
+#[tauri::command]
+async fn check_pet_assets(app: tauri::AppHandle, slug: String) -> bool {
+    let pet_dir = get_assets_dir(&app).join(&slug);
+    if !pet_dir.exists() { return false; }
+    
+    // Verificar que tenga al menos los archivos del stage 1
+    let required = vec![
+        "stage1_idle.png",
+        "stage1_click.png", 
+        "stage1_rapid.png",
+        "stage1_sleep.png",
+        "stage1_potion.png",
+    ];
+    
+    required.iter().all(|f| pet_dir.join(f).exists())
+}
+
+#[tauri::command]
+async fn download_pet_assets(
+    app: tauri::AppHandle,
+    slug: String,
+    base_url: String,
+) -> Result<(), String> {
+    let assets_dir = get_assets_dir(&app);
+    let pet_dir = assets_dir.join(&slug);
+    
+    // Crear directorio si no existe
+    fs::create_dir_all(&pet_dir)
+        .map_err(|e| format!("Error creando directorio: {}", e))?;
+
+    let stages = 5;
+    let animations = vec!["idle", "click", "rapid", "sleep", "potion"];
+    
+    let client = reqwest::Client::new();
+    
+    for stage in 1..=stages {
+        for anim in &animations {
+            let filename = format!("stage{}_{}.png", stage, anim);
+            let file_path = pet_dir.join(&filename);
+            
+            // Si ya existe, saltar
+            if file_path.exists() { continue; }
+            
+            let url = format!("{}/{}", base_url.trim_end_matches('/'), filename);
+            
+            match client.get(&url).send().await {
+                Ok(response) if response.status().is_success() => {
+                    let bytes = response.bytes().await
+                        .map_err(|e| format!("Error leyendo bytes: {}", e))?;
+                    fs::write(&file_path, &bytes)
+                        .map_err(|e| format!("Error escribiendo archivo: {}", e))?;
+                }
+                Ok(response) => {
+                    // Archivo no existe en servidor, crear placeholder vacío
+                    // para no volver a intentar descargarlo
+                    eprintln!("Asset no encontrado: {} ({})", url, response.status());
+                }
+                Err(e) => {
+                    eprintln!("Error descargando {}: {}", url, e);
+                }
+            }
+        }
+    }
+    
+    Ok(())
+}
+
+#[tauri::command]
+async fn download_potion_image(
+    app: tauri::AppHandle,
+    slug: String,
+    url: String,
+) -> Result<String, String> {
+    let potions_dir = get_assets_dir(&app).join("potions");
+    fs::create_dir_all(&potions_dir)
+        .map_err(|e| format!("Error creando directorio: {}", e))?;
+    
+    let filename = format!("{}.png", slug);
+    let file_path = potions_dir.join(&filename);
+    
+    if file_path.exists() {
+        return Ok(file_path.to_string_lossy().to_string());
+    }
+    
+    let client = reqwest::Client::new();
+    let response = client.get(&url).send().await
+        .map_err(|e| format!("Error en request: {}", e))?;
+    
+    if response.status().is_success() {
+        let bytes = response.bytes().await
+            .map_err(|e| format!("Error leyendo bytes: {}", e))?;
+        fs::write(&file_path, &bytes)
+            .map_err(|e| format!("Error escribiendo: {}", e))?;
+    }
+    
+    Ok(file_path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn get_asset_path(app: tauri::AppHandle, slug: String, stage: u8, animation: String) -> String {
+    let path = get_assets_dir(&app)
+        .join(&slug)
+        .join(format!("stage{}_{}.png", stage, animation));
+    
+    if path.exists() {
+        // Convertir a URL que WebView puede leer
+        format!("https://asset.localhost/{}/{}/stage{}_{}.png", slug, slug, stage, animation)
+    } else {
+        String::new()
+    }
 }
