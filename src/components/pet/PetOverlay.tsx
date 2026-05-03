@@ -21,9 +21,11 @@ export default function PetOverlay() {
 
   const [totalClicks, setTotalClicks] = useState(0)
   const [stage, setStage] = useState(1)
-  const [animation, setAnimation] = useState<
-    'idle' | 'click' | 'rapid' | 'sleep' | 'potion'
-  >('idle')
+  const [animation, setAnimation] = useState<'idle' | 'click' | 'rapid' | 'sleep' | 'potion'>('idle')
+
+  // --- NUEVOS ESTADOS PARA IMÁGENES ---
+  const [petImageSrc, setPetImageSrc] = useState<string | null>(null)
+  const [petSlug, setPetSlug] = useState('slime')
 
   const pendingRef = useRef(0)
   const lastClickTime = useRef(0)
@@ -34,10 +36,36 @@ export default function PetOverlay() {
   const stageRef = useRef(1)
   const animationRef = useRef<typeof animation>('idle')
   const userPetIdRef = useRef(userPetId)
+  const petSlugRef = useRef(petSlug) // Ref para evitar problemas de clausura en listeners
 
   useEffect(() => { animationRef.current = animation }, [animation])
   useEffect(() => { stageRef.current = stage }, [stage])
   useEffect(() => { userPetIdRef.current = userPetId }, [userPetId])
+  useEffect(() => { petSlugRef.current = petSlug }, [petSlug])
+
+  // --- NUEVA FUNCIÓN: CARGAR IMAGEN DESDE RUST ---
+  async function loadPetImage(slug: string, stageNum: number) {
+    try {
+      // Obtenemos la ruta del asset desde el backend
+      const path = await invoke<string>('get_asset_path', { 
+        slug, 
+        stage: stageNum, 
+        animation: 'idle' 
+      })
+      
+      if (path) {
+        // Leemos el archivo y lo convertimos a base64 para mostrarlo en el <img>
+        const b64 = await invoke<string>('read_image_as_base64', { path })
+        if (b64) setPetImageSrc(b64)
+        else setPetImageSrc(null)
+      } else {
+        setPetImageSrc(null)
+      }
+    } catch (err) {
+      console.error("Error loading pet image:", err)
+      setPetImageSrc(null)
+    }
+  }
 
   // Cargar datos iniciales
   useEffect(() => {
@@ -59,7 +87,7 @@ export default function PetOverlay() {
       registerClick()
     })
     return () => { unlisten.then(fn => fn()) }
-  }, [])
+  }, [petSlug]) // Re-bind cuando cambie el slug para tener el valor fresco
 
   // Sync cada 30 segundos
   useEffect(() => {
@@ -73,22 +101,24 @@ export default function PetOverlay() {
     }
   }, [userPetId])
 
+  // Listener de Pociones
   useEffect(() => {
     const unlisten = listen<{ bonus?: number }>('use-potion', (event) => {
       playAnimation('potion', 800)
       const bonus = event.payload?.bonus ?? 0
       if (bonus > 0) {
-        // Sumar clicks localmente en el overlay
         pendingRef.current += bonus
         const newTotal = totalRef.current + bonus
         totalRef.current = newTotal
         setTotalClicks(newTotal)
+        
         const newStage = calcStage(newTotal)
         if (newStage !== stageRef.current) {
           setStage(newStage)
           stageRef.current = newStage
+          // Actualizar imagen al evolucionar por poción
+          loadPetImage(petSlugRef.current, newStage)
         }
-        // Notificar al dashboard
         invoke('emit_to_dashboard', { clicks: newTotal }).catch(() => {})
       }
     })
@@ -103,17 +133,33 @@ export default function PetOverlay() {
   }, [])
 
   async function loadPetData(petId: string) {
+    // 1. Obtener datos de progreso
     const { data } = await supabaseClickpet
       .from('user_pets')
       .select('total_clicks, current_stage')
       .eq('id', petId)
       .single()
+
     if (data) {
       setTotalClicks(data.total_clicks)
       setStage(data.current_stage)
       totalRef.current = data.total_clicks
       stageRef.current = data.current_stage
-      // Sincronizar dashboard con valor inicial
+      
+      // 2. Obtener el SLUG de la mascota (Join con tabla pets)
+      const { data: petData } = await supabaseClickpet
+        .from('user_pets')
+        .select('pet:pets(slug)')
+        .eq('id', petId)
+        .single()
+      
+      const slug = (petData?.pet as any)?.slug ?? 'slime'
+      setPetSlug(slug)
+      
+      // 3. Cargar la imagen inicial
+      await loadPetImage(slug, data.current_stage)
+      
+      // Sincronizar dashboard
       await invoke('emit_to_dashboard', { clicks: data.total_clicks })
     }
   }
@@ -163,9 +209,10 @@ export default function PetOverlay() {
     if (newStage !== stageRef.current) {
       setStage(newStage)
       stageRef.current = newStage
+      // Actualizar imagen al evolucionar por clicks
+      loadPetImage(petSlug, newStage)
     }
 
-    // Emitir al dashboard en tiempo real
     invoke('emit_to_dashboard', { clicks: newTotal }).catch(() => {})
 
     const now = Date.now()
@@ -194,9 +241,15 @@ export default function PetOverlay() {
     e.preventDefault()
   }
 
+  // Backup de emojis por si falla la carga de imagen
   const stageEmoji = ['🟢', '🫧', '👾', '👑', '✨']
 
   const petStyle: React.CSSProperties = {
+    width: 100, // Ajustamos tamaño para la imagen
+    height: 100,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
     fontSize: 80,
     lineHeight: 1,
     filter: 'drop-shadow(0 4px 16px rgba(74,222,128,0.5))',
@@ -218,11 +271,21 @@ export default function PetOverlay() {
       onContextMenu={handleContextMenu}
     >
       <div style={petStyle}>
-        {stageEmoji[stage - 1]}
+        {petImageSrc ? (
+          <img 
+            src={petImageSrc} 
+            alt="pet" 
+            style={{ width: '100%', height: '100%', objectFit: 'contain' }} 
+          />
+        ) : (
+          stageEmoji[stage - 1]
+        )}
       </div>
+      
       {animation === 'sleep'  && <div style={styles.badge}>💤</div>}
       {animation === 'rapid'  && <div style={styles.badge}>✨</div>}
       {animation === 'potion' && <div style={styles.badge}>🌟</div>}
+      
       <div style={styles.clickCounter}>
         {totalClicks.toLocaleString()}
       </div>

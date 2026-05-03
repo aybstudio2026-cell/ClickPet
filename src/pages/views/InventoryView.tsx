@@ -1,12 +1,26 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { invoke } from '@tauri-apps/api/core'
 import { supabaseClickpet } from '../../lib/supabase'
 import { usePetStore, calcStage } from '../../store/petStore'
 import { inventoryStyles as iv } from '../../styles/dashboard/inventory'
-import { petCardStyles as pc } from '../../styles/dashboard/petCard'
-import { layoutStyles as l } from '../../styles/dashboard/layout'
 
 interface Props {
   onGoShop: () => void
+}
+
+function PotionImage({ slug, size = '52px' }: { slug: string, size?: string }) {
+  const [src, setSrc] = useState<string | null>(null)
+  useEffect(() => {
+    invoke<string>('get_potion_path', { slug })
+      .then(async path => {
+        if (!path) return
+        const b64 = await invoke<string>('read_image_as_base64', { path })
+        if (b64) setSrc(b64)
+      }).catch(() => {})
+  }, [slug])
+
+  if (src) return <img src={src} style={{ width: size, height: size, objectFit: 'contain' }} alt="potion" />
+  return <div style={{ fontSize: '40px' }}>🧪</div>
 }
 
 export default function InventoryView({ onGoShop }: Props) {
@@ -15,7 +29,10 @@ export default function InventoryView({ onGoShop }: Props) {
   const [using, setUsing] = useState(false)
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null)
 
-  const activePotions = potions.filter(p => p.quantity > 0)
+  const activePotions = potions
+    .filter(p => p.quantity > 0)
+    .sort((a, b) => (a.potion?.click_bonus ?? 0) - (b.potion?.click_bonus ?? 0))
+
   const totalPotions = activePotions.reduce((sum, p) => sum + p.quantity, 0)
   const selected = activePotions.find(p => p.potion_id === selectedPotion)
 
@@ -34,23 +51,18 @@ export default function InventoryView({ onGoShop }: Props) {
       })
       if (error) throw error
 
-      // Actualizar inventario local
       setPotions(potions.map(p =>
         p.potion_id === selected.potion_id
-          ? { ...p, quantity: p.quantity - 1 }
-          : p
+          ? { ...p, quantity: p.quantity - 1 } : p
       ))
 
       const bonus = selected.potion?.click_bonus ?? 0
 
       if (bonus > 0) {
-        // Sincronizar clicks a Supabase
         await supabaseClickpet.rpc('sync_clicks', {
           p_user_pet_id: activePet.id,
           p_clicks: bonus,
         })
-
-        // Actualizar store local para reflejar en dashboard
         usePetStore.setState((state) => {
           if (!state.activePet) return {}
           const newTotal = state.activePet.total_clicks + bonus
@@ -58,33 +70,26 @@ export default function InventoryView({ onGoShop }: Props) {
           const newStage = calcStage(newTotal)
           return {
             justEvolved: newStage > oldStage,
-            activePet: {
-              ...state.activePet,
-              total_clicks: newTotal,
-              current_stage: newStage,
-            },
+            activePet: { ...state.activePet, total_clicks: newTotal, current_stage: newStage },
           }
         })
-
-        // Notificar al overlay si está visible
+        
         if (isOverlayVisible) {
           const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow')
           const overlay = await WebviewWindow.getByLabel('overlay')
           if (overlay) await overlay.emit('use-potion', { bonus })
         }
-
-        showMsg(`✨ ¡+${bonus.toLocaleString()} clicks aplicados!`, true)
+        showMsg(`✨ +${bonus.toLocaleString()} clicks sumados!`, true)
       } else {
         if (isOverlayVisible) {
           const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow')
           const overlay = await WebviewWindow.getByLabel('overlay')
           if (overlay) await overlay.emit('use-potion', { bonus: 0 })
         }
-        showMsg('✨ ¡Poción usada!', true)
+        showMsg('✨ Poción usada!', true)
       }
 
       if (selected.quantity - 1 <= 0) setSelectedPotion(null)
-
     } catch {
       showMsg('❌ Error al usar la poción.', false)
     } finally {
@@ -92,123 +97,104 @@ export default function InventoryView({ onGoShop }: Props) {
     }
   }
 
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-      <h3 style={l.sectionTitle}>Mi Inventario</h3>
+  if (totalPotions === 0) return (
+    <div style={iv.container}>
+      <h3 style={iv.title}>Mi Inventario</h3>
+      <div style={iv.emptyBox}>
+        <div style={{ fontSize: '64px', marginBottom: '16px' }}>🎒</div>
+        <p style={{ fontSize: '15px', color: 'var(--color-text-secondary)', margin: '0 0 20px', fontWeight: 500 }}>
+          Tu inventario está vacío. <br/>¡Consigue pociones en la tienda!
+        </p>
+        <button style={iv.btnPrimary} onClick={onGoShop}>Ir a la Tienda</button>
+      </div>
+    </div>
+  )
 
-      <div style={iv.tabsRow}>
-        <button style={iv.tabActive}>🧪 Pociones</button>
+  return (
+    <div style={iv.container}>
+      {/* Header */}
+      <div style={iv.header}>
+        <h3 style={iv.title}>Mi Inventario</h3>
+        <span style={iv.totalBadge}>{totalPotions} objetos</span>
       </div>
 
-      {totalPotions === 0 ? (
-        <div style={{ ...pc.petCard, justifyContent: 'center',
-          flexDirection: 'column', textAlign: 'center', padding: '2.5rem' }}>
-          <div style={{ fontSize: '48px', marginBottom: '8px' }}>🎒</div>
-          <div style={{ color: '#78767B', fontSize: '14px', marginBottom: '12px' }}>
-            Tu inventario está vacío.
-          </div>
-          <button style={{ ...pc.btnShow, alignSelf: 'center' }} onClick={onGoShop}>
-            Ir a la Tienda
-          </button>
-        </div>
-      ) : (
-        <>
-          <div style={iv.inventoryGrid}>
-            {activePotions.map(p => {
-              const isSelected = selectedPotion === p.potion_id
-              const bonus = p.potion?.click_bonus ?? 0
-              return (
-                <div key={p.potion_id}
-                  style={{
-                    ...iv.inventoryItem,
-                    ...(isSelected ? iv.inventoryItemSelected : {}),
-                    border: isSelected ? '2px solid #B8C0FF' : undefined,
-                  }}
-                  onClick={() => setSelectedPotion(isSelected ? null : p.potion_id)}
-                >
-                  <div style={iv.inventoryItemIcon}>🧪</div>
-                  <div style={iv.inventoryItemName}>
-                    {p.potion?.name ?? 'Poción'}
-                  </div>
-                  {bonus > 0 && (
-                    <div style={{ fontSize: '10px', color: '#3D4B9E',
-                      fontWeight: 700, background: '#B8C0FF30',
-                      padding: '1px 6px', borderRadius: '999px' }}>
-                      +{bonus.toLocaleString()} clicks
-                    </div>
-                  )}
-                  <div style={iv.inventoryItemQty}>{p.quantity}</div>
+      <div style={iv.tabsRow}>
+        <button style={iv.tabActive}>Pociones</button>
+      </div>
+
+      {/* Grid */}
+      <div style={iv.inventoryGrid}>
+        {activePotions.map(p => {
+          const isSelected = selectedPotion === p.potion_id
+          const bonus = p.potion?.click_bonus ?? 0
+          return (
+            <div
+              key={p.potion_id}
+              style={{
+                ...iv.inventoryItem,
+                ...(isSelected ? iv.inventoryItemActive : {}),
+              }}
+              onClick={() => setSelectedPotion(isSelected ? null : p.potion_id)}
+            >
+              <div style={iv.qtyBadge}>{p.quantity}</div>
+              <PotionImage slug={p.potion?.slug ?? p.potion_id} />
+              <p style={iv.inventoryItemName}>{p.potion?.name ?? 'Poción'}</p>
+              {bonus > 0 && (
+                <div style={iv.bonusPill}>
+                  +{bonus >= 1000 ? `${bonus / 1000}K` : bonus}
                 </div>
-              )
-            })}
-            {Array.from({ length: Math.max(0, 8 - activePotions.length) }).map((_, i) => (
-              <div key={`e-${i}`} style={{ ...iv.inventoryItem,
-                opacity: 0.3, cursor: 'default' }}>
-                <div style={{ fontSize: '24px', color: '#E8E7F0' }}>+</div>
-              </div>
-            ))}
-          </div>
-
-          {msg && (
-            <div style={{ padding: '8px 14px', borderRadius: '8px',
-              fontSize: '13px', fontWeight: 600, textAlign: 'center',
-              background: msg.ok ? '#EDF5EF' : '#FFE5E5',
-              color: msg.ok ? '#2D6B45' : '#8B2020',
-              border: `1px solid ${msg.ok ? '#C8E7D1' : '#FFB3B3'}` }}>
-              {msg.text}
+              )}
             </div>
-          )}
+          )
+        })}
+      </div>
 
-          <div style={iv.inventoryUseBar}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <div style={{ fontSize: '24px' }}>{selected ? '🧪' : '🎒'}</div>
+      {/* Mensaje feedback */}
+      {msg && (
+        <div style={{
+          ...iv.msgBanner,
+          background: msg.ok ? 'var(--color-background-success)' : 'var(--color-background-danger)',
+          color: msg.ok ? 'var(--color-text-success)' : 'var(--color-text-danger)',
+          border: `1px solid ${msg.ok ? 'var(--color-border-success)' : 'var(--color-border-danger)'}`,
+        }}>
+          {msg.text}
+        </div>
+      )}
+
+      {/* Panel de uso */}
+      <div style={iv.usePanel}>
+        {selected ? (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
+              <PotionImage slug={selected.potion?.slug ?? selected.potion_id} size="44px" />
               <div>
-                {selected ? (
-                  <>
-                    <div style={{ fontSize: '13px', fontWeight: 600, color: '#1A1A2E' }}>
-                      {selected.potion?.name ?? 'Poción seleccionada'}
-                    </div>
-                    <div style={{ fontSize: '11px', color: '#78767B' }}>
-                      {(selected.potion?.click_bonus ?? 0) > 0
-                        ? `Suma +${(selected.potion?.click_bonus ?? 0).toLocaleString()} clicks`
-                        : 'Activa una animación especial'}
-                      {' · '}{selected.quantity} disponibles
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div style={{ fontSize: '13px', fontWeight: 600, color: '#1A1A2E' }}>
-                      Selecciona una poción
-                    </div>
-                    <div style={{ fontSize: '11px', color: '#78767B' }}>
-                      Toca una poción del inventario para usarla
-                    </div>
-                  </>
-                )}
+                <p style={{ margin: 0, fontSize: '14px', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                  {selected.potion?.name}
+                </p>
+                <p style={{ margin: 0, fontSize: '12px', color: 'var(--color-text-secondary)', fontWeight: 500 }}>
+                  {(selected.potion?.click_bonus ?? 0) > 0
+                    ? `Otorga ${selected.potion?.click_bonus.toLocaleString()} clicks`
+                    : 'Efecto estético especial'}
+                </p>
               </div>
             </div>
             <button
-              style={{
-                ...l.btnAccent, padding: '9px 22px',
-                opacity: (selected && !using) ? 1 : 0.4,
-                cursor: (selected && !using) ? 'pointer' : 'not-allowed',
-                fontSize: '13px',
-              }}
+              style={{ ...iv.btnPrimary, opacity: using ? 0.6 : 1 }}
               onClick={usePotion}
-              disabled={!selected || using}
+              disabled={using}
             >
-              {using ? '...' : '✨ Usar'}
+              {using ? 'Usando...' : 'Usar'}
             </button>
+          </>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', color: 'var(--color-text-secondary)' }}>
+            <div style={{ fontSize: '20px' }}>💡</div>
+            <p style={{ margin: 0, fontSize: '13px', fontWeight: 500 }}>
+              Selecciona un objeto para ver sus detalles
+            </p>
           </div>
-
-          {!isOverlayVisible && selected && (selected.potion?.click_bonus ?? 0) === 0 && (
-            <div style={{ fontSize: '11px', color: '#78767B',
-              textAlign: 'center', marginTop: '-8px' }}>
-              💡 Muestra tu mascota para ver la animación
-            </div>
-          )}
-        </>
-      )}
+        )}
+      </div>
     </div>
   )
 }

@@ -2,6 +2,7 @@ import { usePetStore } from '../../store/petStore'
 import { petCardStyles as pc } from '../../styles/dashboard/petCard'
 import { statsStyles as st } from '../../styles/dashboard/stats'
 import { PET_EMOJIS, PET_STAGE_NAMES, STAGES_REQUIRED } from '../../hooks/usePetData'
+import { usePetImage } from '../../hooks/usePetImage'
 
 interface Props {
   activePetSlug: string
@@ -12,22 +13,28 @@ interface Props {
 }
 
 export default function DashboardView({
-  activePetSlug, petName, onToggleOverlay, onUsePotion, onGoShop
+  activePetSlug, petName, onToggleOverlay,
 }: Props) {
-  const { activePet, isOverlayVisible, potions } = usePetStore()
+  const { activePet, isOverlayVisible } = usePetStore()
 
   const currentStage = activePet?.current_stage ?? 1
   const totalClicks = activePet?.total_clicks ?? 0
   const nextRequired = STAGES_REQUIRED[currentStage] ?? 50000
   const progress = currentStage >= 5 ? 100 : Math.min((totalClicks / nextRequired) * 100, 100)
-  const petEmojis = PET_EMOJIS[activePetSlug] ?? PET_EMOJIS.slime
   const stageNames = PET_STAGE_NAMES[activePetSlug] ?? PET_STAGE_NAMES.slime
-  const totalPotions = potions.reduce((sum, p) => sum + p.quantity, 0)
+  const fallbackEmoji = (PET_EMOJIS[activePetSlug] ?? PET_EMOJIS.slime)[currentStage - 1]
+
+  const petImageSrc = usePetImage(activePetSlug, currentStage, 'idle')
 
   return (
     <>
       <div style={pc.petCard}>
-        <div style={pc.petImageBox}>{petEmojis[currentStage - 1]}</div>
+        <div style={pc.petImageBox}>
+          {petImageSrc
+            ? <img src={petImageSrc} style={{ width: '90px', height: '90px', objectFit: 'contain' }} />
+            : <span style={{ fontSize: '64px' }}>{fallbackEmoji}</span>
+          }
+        </div>
         <div style={pc.petCardInfo}>
           <div style={pc.petCardTop}>
             <h3 style={pc.petCardName}>{petName}</h3>

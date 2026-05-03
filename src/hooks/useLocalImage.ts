@@ -6,8 +6,12 @@ export function useLocalImage(slug: string, stage: number, animation: string = '
 
   useEffect(() => {
     if (!slug) return
-    invoke<string>('get_asset_path', { slug, stage, animation })
-      .then(path => { if (path) setSrc(path) })
+      invoke<string>('get_asset_path', { slug, stage, animation })
+        .then(async path => {
+        if (!path) return
+        const base64 = await invoke<string>('read_image_as_base64', { path })
+        if (base64) setSrc(base64)
+      })
       .catch(() => {})
   }, [slug, stage, animation])
 

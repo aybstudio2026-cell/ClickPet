@@ -109,6 +109,8 @@ pub fn run() {
             download_pet_assets,
             download_potion_image,
             get_asset_path,
+            get_potion_path,
+            read_image_as_base64,
         ])
         .setup(|app| {
             // Tray icon
@@ -173,13 +175,10 @@ async fn check_pet_assets(app: tauri::AppHandle, slug: String) -> bool {
     let pet_dir = get_assets_dir(&app).join(&slug);
     if !pet_dir.exists() { return false; }
     
-    // Verificar que tenga al menos los archivos del stage 1
+    // Verificar stage1 mínimo con nueva estructura
     let required = vec![
-        "stage1_idle.png",
-        "stage1_click.png", 
-        "stage1_rapid.png",
-        "stage1_sleep.png",
-        "stage1_potion.png",
+        "stage1/stage1_idle.png",
+        "stage1/stage1_click.png",
     ];
     
     required.iter().all(|f| pet_dir.join(f).exists())
@@ -189,48 +188,61 @@ async fn check_pet_assets(app: tauri::AppHandle, slug: String) -> bool {
 async fn download_pet_assets(
     app: tauri::AppHandle,
     slug: String,
-    base_url: String,
+    zip_url: String,
 ) -> Result<(), String> {
     let assets_dir = get_assets_dir(&app);
     let pet_dir = assets_dir.join(&slug);
     
-    // Crear directorio si no existe
     fs::create_dir_all(&pet_dir)
         .map_err(|e| format!("Error creando directorio: {}", e))?;
 
-    let stages = 5;
-    let animations = vec!["idle", "click", "rapid", "sleep", "potion"];
-    
+    // Descargar el ZIP
     let client = reqwest::Client::new();
+    let response = client.get(&zip_url).send().await
+        .map_err(|e| format!("Error descargando ZIP: {}", e))?;
     
-    for stage in 1..=stages {
-        for anim in &animations {
-            let filename = format!("stage{}_{}.png", stage, anim);
-            let file_path = pet_dir.join(&filename);
-            
-            // Si ya existe, saltar
-            if file_path.exists() { continue; }
-            
-            let url = format!("{}/{}", base_url.trim_end_matches('/'), filename);
-            
-            match client.get(&url).send().await {
-                Ok(response) if response.status().is_success() => {
-                    let bytes = response.bytes().await
-                        .map_err(|e| format!("Error leyendo bytes: {}", e))?;
-                    fs::write(&file_path, &bytes)
-                        .map_err(|e| format!("Error escribiendo archivo: {}", e))?;
-                }
-                Ok(response) => {
-                    // Archivo no existe en servidor, crear placeholder vacío
-                    // para no volver a intentar descargarlo
-                    eprintln!("Asset no encontrado: {} ({})", url, response.status());
-                }
-                Err(e) => {
-                    eprintln!("Error descargando {}: {}", url, e);
-                }
+    if !response.status().is_success() {
+        return Err(format!("ZIP no encontrado: {}", response.status()));
+    }
+    
+    let bytes = response.bytes().await
+        .map_err(|e| format!("Error leyendo ZIP: {}", e))?;
+    
+    // Guardar ZIP temporal
+    let zip_path = assets_dir.join(format!("{}_temp.zip", slug));
+    fs::write(&zip_path, &bytes)
+        .map_err(|e| format!("Error guardando ZIP: {}", e))?;
+    
+    // Descomprimir
+    let zip_file = fs::File::open(&zip_path)
+        .map_err(|e| format!("Error abriendo ZIP: {}", e))?;
+    
+    let mut archive = zip::ZipArchive::new(zip_file)
+        .map_err(|e| format!("Error leyendo ZIP: {}", e))?;
+    
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i)
+            .map_err(|e| format!("Error ZIP index: {}", e))?;
+        
+        let outpath = pet_dir.join(file.name());
+        
+        if file.name().ends_with('/') {
+            fs::create_dir_all(&outpath)
+                .map_err(|e| format!("Error creando dir: {}", e))?;
+        } else {
+            if let Some(parent) = outpath.parent() {
+                fs::create_dir_all(parent)
+                    .map_err(|e| format!("Error creando parent: {}", e))?;
             }
+            let mut outfile = fs::File::create(&outpath)
+                .map_err(|e| format!("Error creando archivo: {}", e))?;
+            std::io::copy(&mut file, &mut outfile)
+                .map_err(|e| format!("Error extrayendo: {}", e))?;
         }
     }
+    
+    // Borrar ZIP temporal
+    let _ = fs::remove_file(&zip_path);
     
     Ok(())
 }
@@ -270,12 +282,52 @@ async fn download_potion_image(
 fn get_asset_path(app: tauri::AppHandle, slug: String, stage: u8, animation: String) -> String {
     let path = get_assets_dir(&app)
         .join(&slug)
+        .join(format!("stage{}", stage))
         .join(format!("stage{}_{}.png", stage, animation));
     
+    // Devolver la ruta absoluta como string
     if path.exists() {
-        // Convertir a URL que WebView puede leer
-        format!("https://asset.localhost/{}/{}/stage{}_{}.png", slug, slug, stage, animation)
+        path.to_string_lossy().to_string()
     } else {
         String::new()
     }
+}
+
+#[tauri::command]
+fn get_potion_path(app: tauri::AppHandle, slug: String) -> String {
+    let path = get_assets_dir(&app)
+        .join("potions")
+        .join(format!("{}.png", slug));
+    
+    if path.exists() {
+        path.to_string_lossy().to_string()
+    } else {
+        String::new()
+    }
+}
+
+#[tauri::command]
+async fn read_image_as_base64(path: String) -> Result<String, String> {
+    let bytes = fs::read(&path)
+        .map_err(|e| format!("Error leyendo imagen: {}", e))?;
+    
+    let b64 = base64_encode(&bytes);
+    Ok(format!("data:image/png;base64,{}", b64))
+}
+
+fn base64_encode(input: &[u8]) -> String {
+    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut result = String::new();
+    let mut i = 0;
+    while i < input.len() {
+        let b0 = input[i] as u32;
+        let b1 = if i + 1 < input.len() { input[i + 1] as u32 } else { 0 };
+        let b2 = if i + 2 < input.len() { input[i + 2] as u32 } else { 0 };
+        result.push(CHARS[((b0 >> 2) & 0x3F) as usize] as char);
+        result.push(CHARS[(((b0 << 4) | (b1 >> 4)) & 0x3F) as usize] as char);
+        result.push(if i + 1 < input.len() { CHARS[(((b1 << 2) | (b2 >> 6)) & 0x3F) as usize] as char } else { '=' });
+        result.push(if i + 2 < input.len() { CHARS[(b2 & 0x3F) as usize] as char } else { '=' });
+        i += 3;
+    }
+    result
 }

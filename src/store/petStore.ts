@@ -1,6 +1,13 @@
 import { create } from 'zustand'
 import { UserPet, Profile, PotionInventory } from '../types'
 
+interface DownloadingPet {
+  petId: string
+  slug: string
+  progress: 'downloading' | 'done' | 'error'
+}
+
+
 interface PetStore {
   profile: Profile | null
   activePet: UserPet | null
@@ -17,6 +24,9 @@ interface PetStore {
   setJustEvolved: (v: boolean) => void
   setPotions: (potions: PotionInventory[]) => void
   updateBalance: (balance: number) => void
+  downloadingPets: DownloadingPet[]
+  setDownloadingPet: (petId: string, slug: string, progress: DownloadingPet['progress']) => void
+  removeDownloadingPet: (petId: string) => void
 }
 
 export const usePetStore = create<PetStore>((set) => ({
@@ -26,12 +36,25 @@ export const usePetStore = create<PetStore>((set) => ({
   isOverlayVisible: false,
   justEvolved: false,
   potions: [],
+  downloadingPets: [],
 
   setProfile: (profile) => set({ profile }),
   setActivePet: (pet) => set({ activePet: pet }),
   setPotions: (potions) => set({ potions }),
   updateBalance: (balance) => set((state) => ({
     profile: state.profile ? { ...state.profile, balance } : null
+  })),
+
+  setDownloadingPet: (petId, slug, progress) => set((state) => {
+    const existing = state.downloadingPets.find(d => d.petId === petId)
+    if (existing) {
+      return { downloadingPets: state.downloadingPets.map(d => d.petId === petId ? { ...d, progress } : d) }
+    }
+    return { downloadingPets: [...state.downloadingPets, { petId, slug, progress }] }
+  }),
+
+  removeDownloadingPet: (petId) => set((state) => ({
+    downloadingPets: state.downloadingPets.filter(d => d.petId !== petId)
   })),
 
   addClick: () => set((state) => {

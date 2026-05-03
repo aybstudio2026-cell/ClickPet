@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { invoke } from '@tauri-apps/api/core'
 import { supabase, supabaseClickpet } from '../../lib/supabase'
 import { usePetStore } from '../../store/petStore'
 import { shopStyles as sh } from '../../styles/dashboard/shop'
@@ -36,6 +37,23 @@ export default function ShopView({
     return <div style={{ fontSize: '42px' }}>{PET_EMOJIS[slug]?.[0] ?? '🐾'}</div>
   }
 
+  function PotionShopImage({ slug }: { slug: string }) {
+    const [src, setSrc] = useState<string | null>(null)
+    
+    useEffect(() => {
+      invoke<string>('get_potion_path', { slug })
+        .then(async path => {
+          if (!path) return
+          const base64 = await invoke<string>('read_image_as_base64', { path })
+          if (base64) setSrc(base64)
+        })
+        .catch(() => {})
+    }, [slug])
+    
+    if (src) return <img src={src} style={{ width: '42px', height: '42px', objectFit: 'contain' }} />
+    return <div style={{ fontSize: '42px' }}>🧪</div>
+  }
+
   async function buyItem() {
     if (!selected || !profile) return
     const total = selected.price * qty
@@ -68,8 +86,12 @@ export default function ShopView({
         setOwnedPetIds([...ownedPetIds, selected.id])
         
         // ← DESCARGA al comprar mascota nueva
-        if ((selected as any).asset_base_url) {
-          ensurePetAssets(selected.slug, (selected as any).asset_base_url)
+        if ((selected as ShopPet).asset_zip_url) {
+          ensurePetAssets(
+            selected.slug, 
+            (selected as ShopPet).asset_zip_url!,
+            selected.id 
+          )
         }
         
         showMsg(`✅ ¡${selected.name} es tuyo!`, true)
@@ -91,7 +113,10 @@ export default function ShopView({
           </button>
           <div style={sh.productDetail}>
             <div style={sh.productImageBox}>
-              {selected._type === 'potion' ? '🧪' : (PET_EMOJIS[selected.slug]?.[0] ?? '🐾')}
+              {selected._type === 'potion'
+                ? <PotionShopImage slug={selected.slug} />
+                : <PetShopImage slug={selected.slug} />
+              }
             </div>
             <div style={sh.productInfo}>
               <span style={sh.productTag}>
@@ -169,12 +194,15 @@ export default function ShopView({
           <div style={sh.shopGrid}>
             {(shopTab === 'pociones' ? shopPotions : shopPets).map(item => {
               const owned = item._type === 'pet' && ownedPetIds.includes(item.id)
-              const emoji = item._type === 'potion' ? '🧪'
-                : (PET_EMOJIS[item.slug]?.[0] ?? '🐾')
               return (
                 <div key={item.id} style={{ ...sh.shopItem, opacity: owned ? 0.7 : 1 }}
                   onClick={() => { setSelected(item); setQty(1) }}>
-                  <div style={sh.shopItemIcon}>{emoji}</div>
+                  <div style={sh.shopItemIcon}>
+                    {item._type === 'potion'
+                      ? <PotionShopImage slug={item.slug} />
+                      : <PetShopImage slug={item.slug} />
+                    }
+                  </div>
                   <div style={sh.shopItemName}>{item.name}</div>
                   <div style={{ fontSize: '11px', color: '#78767B' }}>
                     {item._type === 'potion'

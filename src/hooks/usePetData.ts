@@ -6,7 +6,7 @@ import { UserPet } from '../types'
 import { useAssets } from './useAssets'
 
 export interface OwnedPet extends UserPet {
-  pet: { name: string; slug: string; asset_base_url?: string } | null
+  pet: { name: string; slug: string; asset_zip_url?: string } | null
 }
 export interface ShopPotion {
   id: string
@@ -16,6 +16,7 @@ export interface ShopPotion {
   pack_size: number
   click_bonus: number
   description: string
+  image_url?: string
   _type: 'potion'
 }
 
@@ -26,7 +27,7 @@ export interface ShopPet {
   price: number
   description: string
   is_free: boolean
-  asset_base_url?: string
+  asset_zip_url?: string
   _type: 'pet'
 }
 
@@ -67,23 +68,23 @@ export function usePetData() {
 
   // 2. Mascotas del usuario
   const { data: allPets } = await supabaseClickpet
-    .from('user_pets').select('*, pet:pets(name, slug, asset_base_url)').eq('user_id', user.id)
+    .from('user_pets').select('*, pet:pets(name, slug, asset_zip_url)').eq('user_id', user.id)
 
   if (!allPets || allPets.length === 0) {
     // Lógica para crear slime inicial...
     const { data: slimePet } = await supabaseClickpet
-      .from('pets').select('id, slug, asset_base_url').eq('slug', 'slime').single()
+      .from('pets').select('id, slug, asset_zip_url').eq('slug', 'slime').single()
     if (slimePet) {
       const { data: newPet } = await supabaseClickpet
         .from('user_pets')
         .insert({ user_id: user.id, pet_id: slimePet.id })
-        .select('*, pet:pets(name, slug, asset_base_url)').single()
+        .select('*, pet:pets(name, slug, asset_zip_url)').single()
       if (newPet) {
         setOwnedPets([newPet])
         setActivePet(newPet)
         setActivePetSlug('slime')
         await invoke('set_user_pet_id', { userPetId: newPet.id })
-        if (slimePet.asset_base_url) ensurePetAssets('slime', slimePet.asset_base_url)
+        if (slimePet.asset_zip_url) ensurePetAssets('slime', slimePet.asset_zip_url, newPet.id)
       }
     }
   } else {
@@ -94,8 +95,8 @@ export function usePetData() {
     await invoke('set_user_pet_id', { userPetId: first.id })
     
     for (const pet of allPets) {
-      if (pet.pet?.slug && pet.pet.asset_base_url) {
-        ensurePetAssets(pet.pet.slug, pet.pet.asset_base_url)
+      if (pet.pet?.slug && pet.pet.asset_zip_url) {
+        ensurePetAssets(pet.pet.slug, pet.pet.asset_zip_url, pet.id)
       }
     }
   }
@@ -110,8 +111,8 @@ export function usePetData() {
 
   // 4. DATOS DE LA TIENDA (Aquí se declaran potRes y petRes)
   const [potRes, petRes] = await Promise.all([
-    supabaseClickpet.from('potions').select('*').order('price'),
-    supabaseClickpet.from('pets').select('*, asset_base_url').eq('is_free', false).order('price'),
+    supabaseClickpet.from('potions').select('id, name, slug, price, pack_size, click_bonus, description, image_url').order('price'),
+    supabaseClickpet.from('pets').select('*, asset_zip_url').eq('is_free', false).order('price'),
   ])
 
   // 5. AHORA SÍ puedes usar potRes y petRes
@@ -141,8 +142,8 @@ export function usePetData() {
     await invoke('set_user_pet_id', { userPetId: pet.id })
     
     // Verificar assets al cambiar de mascota activa
-    if (pet.pet?.slug && (pet.pet as any).asset_base_url) {
-      ensurePetAssets(pet.pet.slug, (pet.pet as any).asset_base_url)
+    if (pet.pet?.slug && pet.pet.asset_zip_url) {
+      ensurePetAssets(pet.pet.slug, pet.pet.asset_zip_url, pet.id)
     }
     
     if (isOverlayVisible) {
