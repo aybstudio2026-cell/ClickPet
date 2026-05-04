@@ -25,7 +25,7 @@ export default function SettingsView({ openTutorial }: Props) {
   async function handleSizeChange(size: string) {
     setOverlaySize(size)
     localStorage.setItem('clickpet_overlay_size', size)
-    
+    console.log('[Settings] Tamaño guardado:', size)
     // Si el overlay está visible, redimensionar en tiempo real
     if (isOverlayVisible) {
       await invoke('resize_overlay', { size })
@@ -100,9 +100,9 @@ export default function SettingsView({ openTutorial }: Props) {
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
           {[
-            { id: 'small',  label: 'Pequeño',  desc: '120×120px' },
-            { id: 'medium', label: 'Mediano',  desc: '180×180px' },
-            { id: 'large',  label: 'Grande',   desc: '240×240px' },
+            { id: 'small',  label: 'Pequeño', desc: '160×196px' },
+            { id: 'medium', label: 'Mediano', desc: '220×270px' },
+            { id: 'large',  label: 'Grande',  desc: '320×392px' },
           ].map(opt => (
             <button key={opt.id}
               style={{

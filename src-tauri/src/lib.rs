@@ -16,7 +16,6 @@ fn get_assets_dir(app: &tauri::AppHandle) -> PathBuf {
 }
 
 // ── Overlay ──────────────────────────────────────────────────
-
 #[tauri::command]
 fn show_overlay(app: tauri::AppHandle, user_pet_id: String, size: String) {
     if let Some(state) = app.try_state::<AppState>() {
@@ -24,22 +23,18 @@ fn show_overlay(app: tauri::AppHandle, user_pet_id: String, size: String) {
         *id = Some(user_pet_id.clone());
     }
 
-    let (win_w, win_h, pet_size) = match size.as_str() {
-        "small"  => (120.0_f64, 148.0_f64, 100.0_f64),
-        "large"  => (240.0_f64, 294.0_f64, 200.0_f64),
-        _        => (180.0_f64, 220.0_f64, 150.0_f64),
+    let (win_w, win_h) = match size.as_str() {
+        "small"  => (160.0_f64, 196.0_f64),
+        "large"  => (320.0_f64, 392.0_f64),
+        _        => (220.0_f64, 270.0_f64),
     };
 
     if let Some(overlay) = app.get_webview_window("overlay") {
-        let _ = overlay.set_size(tauri::Size::Physical(
-            tauri::PhysicalSize {
-                width: win_w as u32,
-                height: win_h as u32,
-            }
+        let _ = overlay.set_size(tauri::Size::Logical(
+            tauri::LogicalSize { width: win_w, height: win_h }
         ));
         let _ = overlay.show();
         let _ = overlay.emit("pet-id", user_pet_id);
-        let _ = overlay.emit("pet-size", pet_size as u32);
     } else {
         let url = format!("index.html?window=overlay&pet={}", user_pet_id);
         if let Ok(win) = WebviewWindowBuilder::new(
@@ -58,7 +53,6 @@ fn show_overlay(app: tauri::AppHandle, user_pet_id: String, size: String) {
         .build()
         {
             let _ = win.set_ignore_cursor_events(false);
-            let _ = win.emit("pet-size", pet_size as u32);
         }
     }
 }
@@ -72,20 +66,16 @@ fn hide_overlay(app: tauri::AppHandle) {
 
 #[tauri::command]
 fn resize_overlay(app: tauri::AppHandle, size: String) {
-    let (win_w, win_h, pet_size) = match size.as_str() {
-        "small"  => (120.0_f64, 148.0_f64, 100.0_f64),
-        "large"  => (240.0_f64, 294.0_f64, 200.0_f64),
-        _        => (180.0_f64, 220.0_f64, 150.0_f64),
+    let (win_w, win_h) = match size.as_str() {
+        "small"  => (160.0_f64, 196.0_f64),
+        "large"  => (320.0_f64, 392.0_f64),
+        _        => (220.0_f64, 270.0_f64),
     };
 
     if let Some(overlay) = app.get_webview_window("overlay") {
-        let _ = overlay.set_size(tauri::Size::Physical(
-            tauri::PhysicalSize {
-                width: win_w as u32,
-                height: win_h as u32,
-            }
+        let _ = overlay.set_size(tauri::Size::Logical(
+            tauri::LogicalSize { width: win_w, height: win_h }
         ));
-        let _ = overlay.emit("pet-size", pet_size as u32);
     }
 }
 
@@ -414,4 +404,4 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
-}
+}   

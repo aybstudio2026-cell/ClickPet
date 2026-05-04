@@ -80,7 +80,7 @@ export default function Dashboard({ openTutorial }: DashboardProps) {
       }
     } catch (err) { console.error(err) }
   }
-
+  
   async function handleSwitchPet(pet: typeof ownedPets[0]) {
     if (pet.id === activePet?.id || switchingPet) return
     setSwitchingPet(true)

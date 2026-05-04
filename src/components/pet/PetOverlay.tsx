@@ -4,17 +4,13 @@ import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { listen } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 
+// ── Constantes spritesheet ────────────────────────────────────
+const SHEET_COLS = 6
+const SHEET_ROWS = 6
 const SYNC_INTERVAL = 30000
 const INACTIVITY_TIMEOUT = 180000
 
-// Spritesheet config
-const SHEET_COLS = 6
-const SHEET_ROWS = 6
-const FRAME_COUNT = 36
-const FRAME_W = 456  // 2736 / 6
-const FRAME_H = 558  // 3348 / 6
-const ANIM_DURATION = 2500 // ms para 36 frames = ~69ms por frame
-
+// ── Helpers ───────────────────────────────────────────────────
 function calcStage(clicks: number): number {
   if (clicks >= 50000) return 5
   if (clicks >= 25000) return 4
@@ -23,7 +19,7 @@ function calcStage(clicks: number): number {
   return 1
 }
 
-// Configuración de cada animación: qué frames usar y si hace loop
+// ── Config animaciones ────────────────────────────────────────
 const ANIM_CONFIG: Record<string, { frames: number[]; loop: boolean; fps: number }> = {
   idle:   { frames: Array.from({ length: 36 }, (_, i) => i), loop: true,  fps: 14 },
   click:  { frames: Array.from({ length: 36 }, (_, i) => i), loop: false, fps: 24 },
@@ -32,10 +28,14 @@ const ANIM_CONFIG: Record<string, { frames: number[]; loop: boolean; fps: number
   potion: { frames: Array.from({ length: 36 }, (_, i) => i), loop: false, fps: 24 },
 }
 
-// Cache de imágenes cargadas (base64)
+// ── Cache sprites ─────────────────────────────────────────────
 const spriteCache = new Map<string, string>()
 
-async function loadSprite(slug: string, stage: number, animation: string): Promise<string | null> {
+async function loadSprite(
+  slug: string,
+  stage: number,
+  animation: string
+): Promise<string | null> {
   const key = `${slug}_${stage}_${animation}`
   if (spriteCache.has(key)) return spriteCache.get(key)!
   try {
@@ -49,22 +49,24 @@ async function loadSprite(slug: string, stage: number, animation: string): Promi
   }
 }
 
-// Componente que renderiza el spritesheet con canvas
+// ── SpriteAnimator ────────────────────────────────────────────
 function SpriteAnimator({
   src,
   animation,
-  size,
+  containerW,
+  containerH,
 }: {
   src: string
   animation: string
-  size: number
+  containerW: number
+  containerH: number
 }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const imgRef = useRef<HTMLImageElement | null>(null)
-  const frameRef = useRef(0)
-  const rafRef = useRef<number>(0)
-  const lastTimeRef = useRef(0)
-  const animRef = useRef(animation)
+  const canvasRef    = useRef<HTMLCanvasElement>(null)
+  const imgRef       = useRef<HTMLImageElement | null>(null)
+  const frameRef     = useRef(0)
+  const rafRef       = useRef<number>(0)
+  const lastTimeRef  = useRef(0)
+  const animRef      = useRef(animation)
 
   useEffect(() => { animRef.current = animation }, [animation])
 
@@ -82,9 +84,7 @@ function SpriteAnimator({
     return () => { cancelAnimationFrame(rafRef.current) }
   }, [src])
 
-  useEffect(() => {
-    frameRef.current = 0
-  }, [animation])
+  useEffect(() => { frameRef.current = 0 }, [animation])
 
   function animate(timestamp: number) {
     const config = ANIM_CONFIG[animRef.current] ?? ANIM_CONFIG.idle
@@ -94,7 +94,6 @@ function SpriteAnimator({
       lastTimeRef.current = timestamp
       drawFrame(frameRef.current)
       frameRef.current++
-
       if (frameRef.current >= config.frames.length) {
         if (config.loop) {
           frameRef.current = 0
@@ -109,110 +108,125 @@ function SpriteAnimator({
 
   function drawFrame(frameIndex: number) {
     const canvas = canvasRef.current
-    const img = imgRef.current
+    const img    = imgRef.current
     if (!canvas || !img) return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    // Calcular tamaño real de cada frame desde la imagen cargada
-    const frameW = img.naturalWidth / SHEET_COLS   // 456
-    const frameH = img.naturalHeight / SHEET_ROWS  // 558
+    const frameW = img.naturalWidth  / SHEET_COLS
+    const frameH = img.naturalHeight / SHEET_ROWS
+    const col    = frameIndex % SHEET_COLS
+    const row    = Math.floor(frameIndex / SHEET_COLS)
 
-    const col = frameIndex % SHEET_COLS
-    const row = Math.floor(frameIndex / SHEET_COLS)
-
-    // Escalar manteniendo aspect ratio dentro del canvas
-    const scale = Math.min(canvas.width / frameW, canvas.height / frameH)
-    const drawW = frameW * scale
-    const drawH = frameH * scale
-    const offsetX = (canvas.width - drawW) / 2
+    const scale   = Math.min(canvas.width / frameW, canvas.height / frameH)
+    const drawW   = frameW * scale
+    const drawH   = frameH * scale
+    const offsetX = (canvas.width  - drawW) / 2
     const offsetY = (canvas.height - drawH) / 2
 
     ctx.clearRect(0, 0, canvas.width, canvas.height)
     ctx.drawImage(
       img,
-      col * frameW,  // source x
-      row * frameH,  // source y
-      frameW,        // source w
-      frameH,        // source h
-      offsetX,       // dest x — centrado
-      offsetY,       // dest y — centrado
-      drawW,         // dest w
-      drawH,         // dest h
+      col * frameW, row * frameH,
+      frameW, frameH,
+      offsetX, offsetY,
+      drawW, drawH,
     )
   }
-
-  // Canvas con ratio 456/558 = 0.817 → alto = size / 0.817
-  const canvasH = Math.round(size / (FRAME_W / FRAME_H))
 
   return (
     <canvas
       ref={canvasRef}
-      width={size}
-      height={canvasH}
-      style={{ display: 'block', imageRendering: 'auto' }}
+      width={containerW}
+      height={containerH}
+      style={{
+        display: 'block',
+        width: '100%',
+        height: '100%',
+        imageRendering: 'auto',
+      }}
     />
   )
 }
 
+// ── PetOverlay ────────────────────────────────────────────────
 export default function PetOverlay() {
   const params = new URLSearchParams(window.location.search)
-  const [userPetId, setUserPetId] = useState(params.get('pet') ?? '')
-  const [petSlug, setPetSlug] = useState('slime')
-  const [totalClicks, setTotalClicks] = useState(0)
-  const [stage, setStage] = useState(1)
-  const [animation, setAnimation] = useState<'idle' | 'click' | 'rapid' | 'sleep' | 'potion'>('idle')
-  const [petSize, setPetSize] = useState(120)
-  const [spriteSrc, setSpriteSrc] = useState<string | null>(null)
-  const [loadingSprite, setLoadingSprite] = useState(false)
 
-  const pendingRef = useRef(0)
-  const lastClickTime = useRef(0)
-  const clickCountRef = useRef(0)
-  const animTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [userPetId,   setUserPetId]   = useState(params.get('pet') ?? '')
+  const [petSlug,     setPetSlug]     = useState('slime')
+  const [totalClicks, setTotalClicks] = useState(0)
+  const [stage,       setStage]       = useState(1)
+  const [animation,   setAnimation]   = useState<
+    'idle' | 'click' | 'rapid' | 'sleep' | 'potion'
+  >('idle')
+  const [spriteSrc,   setSpriteSrc]   = useState<string | null>(null)
+  const [winSize,     setWinSize]     = useState({
+    w: window.innerWidth,
+    h: window.innerHeight,
+  })
+
+  const pendingRef      = useRef(0)
+  const lastClickTime   = useRef(0)
+  const clickCountRef   = useRef(0)
+  const animTimer       = useRef<ReturnType<typeof setTimeout> | null>(null)
   const inactivityTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const totalRef = useRef(0)
-  const stageRef = useRef(1)
-  const animationRef = useRef<typeof animation>('idle')
-  const userPetIdRef = useRef(userPetId)
-  const petSlugRef = useRef(petSlug)
+  const totalRef        = useRef(0)
+  const stageRef        = useRef(1)
+  const animationRef    = useRef<typeof animation>('idle')
+  const userPetIdRef    = useRef(userPetId)
+  const petSlugRef      = useRef(petSlug)
 
   useEffect(() => { animationRef.current = animation }, [animation])
-  useEffect(() => { stageRef.current = stage }, [stage])
-  useEffect(() => { userPetIdRef.current = userPetId }, [userPetId])
-  useEffect(() => { petSlugRef.current = petSlug }, [petSlug])
+  useEffect(() => { stageRef.current     = stage      }, [stage])
+  useEffect(() => { userPetIdRef.current = userPetId  }, [userPetId])
+  useEffect(() => { petSlugRef.current   = petSlug    }, [petSlug])
 
-  // Cargar sprite cuando cambia slug, stage o animación activa
+  // Actualizar winSize si la ventana Tauri cambia de tamaño
+  useEffect(() => {
+    function onResize() {
+      // Pequeño delay para que Tauri termine de aplicar el nuevo tamaño
+      setTimeout(() => {
+        setWinSize({ w: window.innerWidth, h: window.innerHeight })
+      }, 50)
+    }
+    window.addEventListener('resize', onResize)
+
+    // Leer tamaño correcto al montar también con delay
+    setTimeout(() => {
+      setWinSize({ w: window.innerWidth, h: window.innerHeight })
+    }, 100)
+
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  // Cargar sprite cuando cambia slug o stage
   useEffect(() => {
     if (!petSlug) return
-    setLoadingSprite(true)
-    loadSprite(petSlug, stage, animation).then(src => {
+    setSpriteSrc(null)
+    loadSprite(petSlug, stage, 'idle').then(src => {
       if (src) setSpriteSrc(src)
-      setLoadingSprite(false)
     })
+    // Precargar resto de animaciones en background
+    const anims = ['click', 'rapid', 'sleep', 'potion']
+    anims.forEach(anim => loadSprite(petSlug, stage, anim))
   }, [petSlug, stage])
 
-  // Cargar sprite de la animación actual si es distinta a idle
+  // Cambiar sprite al cambiar animación
   useEffect(() => {
-    if (animation === 'idle' || !petSlug) return
+    if (!petSlug) return
     loadSprite(petSlug, stage, animation).then(src => {
       if (src) setSpriteSrc(src)
     })
   }, [animation])
 
-  // Volver a idle sprite cuando termina animación no-loop
-  useEffect(() => {
-    if (animation === 'idle') {
-      loadSprite(petSlugRef.current, stageRef.current, 'idle').then(src => {
-        if (src) setSpriteSrc(src)
-      })
-    }
-  }, [animation])
-
+  // Cargar datos iniciales
   useEffect(() => {
     if (!userPetId) return
     loadPetData(userPetId)
   }, [userPetId])
+
+  // ── Listeners Tauri ─────────────────────────────────────────
 
   useEffect(() => {
     const unlisten = listen<string>('pet-id', (event) => {
@@ -230,7 +244,10 @@ export default function PetOverlay() {
 
   useEffect(() => {
     if (!userPetId) return
-    const interval = setInterval(() => syncClicks(userPetIdRef.current), SYNC_INTERVAL)
+    const interval = setInterval(
+      () => syncClicks(userPetIdRef.current),
+      SYNC_INTERVAL
+    )
     window.addEventListener('beforeunload', () => syncClicks(userPetIdRef.current))
     startInactivityTimer()
     return () => {
@@ -266,16 +283,7 @@ export default function PetOverlay() {
     return () => { unlisten.then(fn => fn()) }
   }, [])
 
-  // Tamaño del overlay
-  useEffect(() => {
-    const savedSize = localStorage.getItem('clickpet_overlay_size') ?? 'medium'
-    const sizeMap: Record<string, number> = { small: 80, medium: 120, large: 160 }
-    setPetSize(sizeMap[savedSize] ?? 120)
-    const unlisten = listen<number>('pet-size', (event) => {
-      setPetSize(event.payload)
-    })
-    return () => { unlisten.then(fn => fn()) }
-  }, [])
+  // ── Funciones ────────────────────────────────────────────────
 
   async function loadPetData(petId: string) {
     const { data } = await supabaseClickpet
@@ -290,15 +298,9 @@ export default function PetOverlay() {
       setStage(data.current_stage)
       setPetSlug(slug)
       petSlugRef.current = slug
-      totalRef.current = data.total_clicks
-      stageRef.current = data.current_stage
+      totalRef.current   = data.total_clicks
+      stageRef.current   = data.current_stage
       await invoke('emit_to_dashboard', { clicks: data.total_clicks })
-
-      // Precargar todas las animaciones en background
-      const animations = ['idle', 'click', 'rapid', 'sleep', 'potion']
-      for (const anim of animations) {
-        loadSprite(slug, data.current_stage, anim)
-      }
     }
   }
 
@@ -341,11 +343,8 @@ export default function PetOverlay() {
     if (newStage !== stageRef.current) {
       setStage(newStage)
       stageRef.current = newStage
-      // Precargar animaciones del nuevo stage
-      const animations = ['idle', 'click', 'rapid', 'sleep', 'potion']
-      for (const anim of animations) {
-        loadSprite(petSlugRef.current, newStage, anim)
-      }
+      const anims = ['idle', 'click', 'rapid', 'sleep', 'potion']
+      anims.forEach(anim => loadSprite(petSlugRef.current, newStage, anim))
     }
 
     invoke('emit_to_dashboard', { clicks: newTotal }).catch(() => {})
@@ -376,74 +375,80 @@ export default function PetOverlay() {
     e.preventDefault()
   }
 
-  // Emoji fallback mientras carga el sprite
   const stageEmoji = ['🟢', '🫧', '👾', '👑', '✨']
-  const frameHeight = Math.round(petSize * (FRAME_H / FRAME_W))
 
+  // ── Render ───────────────────────────────────────────────────
   return (
     <div
-      style={styles.container}
+      style={{
+        width: '100vw',
+        height: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        userSelect: 'none',
+        background: 'transparent',
+        position: 'relative',
+        cursor: 'grab',
+        overflow: 'hidden',
+      }}
       onMouseDown={handleDrag}
       onContextMenu={handleContextMenu}
     >
-      // En el return del PetOverlay, reemplaza el div del pet:
-<div style={{
-  cursor: 'grab',
-  transform:
-    animation === 'rapid'  ? 'scale(1.15) rotate(-3deg)' :
-    animation === 'click'  ? 'scale(1.08)' :
-    animation === 'sleep'  ? 'scale(0.95)' :
-    animation === 'potion' ? 'scale(1.2) rotate(5deg)' :
-    'scale(1)',
-  transition: 'transform 0.1s ease',
-  opacity: animation === 'sleep' ? 0.7 : 1,
-}}>
-  {spriteSrc ? (
-    <SpriteAnimator
-      src={spriteSrc}
-      animation={animation}
-      size={petSize}
-    />
-  ) : (
-    <div style={{
-      width: petSize,
-      height: Math.round(petSize / (FRAME_W / FRAME_H)),
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      fontSize: `${petSize * 0.75}px`,
-      lineHeight: 1,
-    }}>
-      {stageEmoji[stage - 1]}
-    </div>
-  )}
-</div>
-
-      {animation === 'sleep'  && <div style={styles.badge}>💤</div>}
-      {animation === 'potion' && <div style={styles.badge}>🌟</div>}
-
+      {/* Mascota animada — ocupa toda la ventana */}
       <div style={{
-        ...styles.clickCounter,
-        fontSize: petSize < 100 ? '9px' : '11px',
+        width: '100vw',
+        height: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        transform:
+          animation === 'rapid'  ? 'scale(1.05) rotate(-2deg)' :
+          animation === 'click'  ? 'scale(1.04)' :
+          animation === 'sleep'  ? 'scale(0.97)' :
+          animation === 'potion' ? 'scale(1.06) rotate(3deg)' :
+          'scale(1)',
+        transition: 'transform 0.1s ease',
+        opacity: animation === 'sleep' ? 0.7 : 1,
       }}>
-        {totalClicks.toLocaleString()}
+        {spriteSrc ? (
+          <SpriteAnimator
+            src={spriteSrc}
+            animation={animation}
+            containerW={winSize.w}
+            containerH={winSize.h}
+          />
+        ) : (
+          <div style={{
+            fontSize: `${Math.min(winSize.w, winSize.h) * 0.6}px`,
+            lineHeight: 1,
+          }}>
+            {stageEmoji[stage - 1]}
+          </div>
+        )}
       </div>
+
+      {/* Badges — solo cuando hay animación especial */}
+      {animation === 'sleep' && (
+        <div style={{
+          position: 'absolute',
+          top: 8, right: 8,
+          fontSize: '16px',
+          pointerEvents: 'none',
+        }}>
+          💤
+        </div>
+      )}
+      {animation === 'potion' && (
+        <div style={{
+          position: 'absolute',
+          top: 8, right: 8,
+          fontSize: '16px',
+          pointerEvents: 'none',
+        }}>
+          🌟
+        </div>
+      )}
     </div>
   )
-}
-
-const styles: Record<string, React.CSSProperties> = {
-  container: {
-    width: '100vw', height: '100vh',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    userSelect: 'none', background: 'transparent',
-    position: 'relative', flexDirection: 'column',
-  },
-  badge: {
-    position: 'absolute', fontSize: '16px', top: 8, right: 8,
-  },
-  clickCounter: {
-    fontSize: '11px', color: 'rgba(74,222,128,0.7)',
-    marginTop: '4px', fontFamily: 'monospace',
-  },
 }
