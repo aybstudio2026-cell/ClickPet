@@ -6,7 +6,7 @@ import { UserPet } from '../types'
 import { useAssets } from './useAssets'
 
 export interface OwnedPet extends UserPet {
-  pet: { name: string; slug: string; asset_zip_url?: string } | null
+  pet: { name: string; slug: string; asset_zip_url?: string, asset_base_url?: string } | null
 }
 export interface ShopPotion {
   id: string
@@ -28,6 +28,7 @@ export interface ShopPet {
   description: string
   is_free: boolean
   asset_zip_url?: string
+  asset_base_url?: string
   _type: 'pet'
 }
 
@@ -68,12 +69,16 @@ export function usePetData() {
 
   // 2. Mascotas del usuario
   const { data: allPets } = await supabaseClickpet
-    .from('user_pets').select('*, pet:pets(name, slug, asset_zip_url)').eq('user_id', user.id)
+    .from('user_pets')
+    .select('*, pet:pets(name, slug, asset_zip_url, asset_base_url)')
+    .eq('user_id', user.id)
 
   if (!allPets || allPets.length === 0) {
     // Lógica para crear slime inicial...
     const { data: slimePet } = await supabaseClickpet
-      .from('pets').select('id, slug, asset_zip_url').eq('slug', 'slime').single()
+      .from('pets')
+      .select('id, slug, asset_zip_url, asset_base_url')
+      .eq('slug', 'slime').single()
     if (slimePet) {
       const { data: newPet } = await supabaseClickpet
         .from('user_pets')
@@ -85,6 +90,13 @@ export function usePetData() {
         setActivePetSlug('slime')
         await invoke('set_user_pet_id', { userPetId: newPet.id })
         if (slimePet.asset_zip_url) ensurePetAssets('slime', slimePet.asset_zip_url, newPet.id)
+        // ← Descargar imagen base del slime
+        if (slimePet.asset_base_url) {
+          invoke('download_pet_base_image', {
+            slug: 'slime',
+            url: slimePet.asset_base_url,
+          }).catch(() => {})
+        }
       }
     }
   } else {
@@ -97,6 +109,13 @@ export function usePetData() {
     for (const pet of allPets) {
       if (pet.pet?.slug && pet.pet.asset_zip_url) {
         ensurePetAssets(pet.pet.slug, pet.pet.asset_zip_url, pet.id)
+      }
+      // ← Descargar imagen base si tiene URL
+      if (pet.pet?.slug && pet.pet.asset_base_url) {
+        invoke('download_pet_base_image', {
+          slug: pet.pet.slug,
+          url: pet.pet.asset_base_url,
+        }).catch(() => {})
       }
     }
   }

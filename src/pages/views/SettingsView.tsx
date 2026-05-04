@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { supabase } from '../../lib/supabase'
 import { usePetStore } from '../../store/petStore'
-import { petCardStyles as pc } from '../../styles/dashboard/petCard'
 import { layoutStyles as l } from '../../styles/dashboard/layout'
 
 const LANGUAGES = [
@@ -15,10 +14,23 @@ interface Props {
 }
 
 export default function SettingsView({ openTutorial }: Props) {
-  const { profile } = usePetStore()
+  const { profile, isOverlayVisible } = usePetStore()
   const [lang, setLang] = useState('es')
-  const [overlaySize, setOverlaySize] = useState('medium')
+  const [overlaySize, setOverlaySize] = useState<string>(
+    () => localStorage.getItem('clickpet_overlay_size') ?? 'medium'
+  )
   const [confirmClose, setConfirmClose] = useState(false)
+
+  // Nueva función para cambiar tamaño:
+  async function handleSizeChange(size: string) {
+    setOverlaySize(size)
+    localStorage.setItem('clickpet_overlay_size', size)
+    
+    // Si el overlay está visible, redimensionar en tiempo real
+    if (isOverlayVisible) {
+      await invoke('resize_overlay', { size })
+    }
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
@@ -88,28 +100,37 @@ export default function SettingsView({ openTutorial }: Props) {
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
           {[
-            { id: 'small',  label: 'Pequeño', size: '120px' },
-            { id: 'medium', label: 'Mediano',  size: '180px' },
-            { id: 'large',  label: 'Grande',   size: '240px' },
+            { id: 'small',  label: 'Pequeño',  desc: '120×120px' },
+            { id: 'medium', label: 'Mediano',  desc: '180×180px' },
+            { id: 'large',  label: 'Grande',   desc: '240×240px' },
           ].map(opt => (
             <button key={opt.id}
               style={{
-                padding: '7px 14px', borderRadius: '10px',
+                padding: '8px 16px', borderRadius: '10px',
                 border: `1.5px solid ${overlaySize === opt.id ? '#B8C0FF' : '#E8E7F0'}`,
                 background: overlaySize === opt.id ? '#B8C0FF20' : 'transparent',
                 color: overlaySize === opt.id ? '#2D3A8C' : '#78767B',
                 fontWeight: overlaySize === opt.id ? 600 : 400,
                 cursor: 'pointer', fontSize: '13px', fontFamily: 'inherit',
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px',
               }}
-              onClick={() => setOverlaySize(opt.id)}
+              onClick={() => handleSizeChange(opt.id)}
             >
-              {opt.label}
+              <span>{opt.label}</span>
+              <span style={{ fontSize: '10px', opacity: 0.7 }}>{opt.desc}</span>
             </button>
           ))}
         </div>
-        <div style={{ fontSize: '11px', color: '#78767B' }}>
-          🚧 Se aplicará en la próxima sesión
-        </div>
+        {isOverlayVisible && (
+          <div style={{ fontSize: '11px', color: '#4CAF82' }}>
+            ✅ Cambio aplicado en tiempo real
+          </div>
+        )}
+        {!isOverlayVisible && (
+          <div style={{ fontSize: '11px', color: '#78767B' }}>
+            💡 Muestra tu mascota para ver el cambio
+          </div>
+        )}
       </div>
 
       {/* Sobre la app */}

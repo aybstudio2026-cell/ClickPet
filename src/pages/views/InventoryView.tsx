@@ -8,19 +8,25 @@ interface Props {
   onGoShop: () => void
 }
 
-function PotionImage({ slug, size = '52px' }: { slug: string, size?: string }) {
-  const [src, setSrc] = useState<string | null>(null)
+const imageCache = new Map<string, string>()
+
+function PotionImage({ slug, size = 52 }: { slug: string; size?: number }) {
+  const [src, setSrc] = useState<string | null>(() => imageCache.get(`potion_${slug}`) ?? null)
+
   useEffect(() => {
+    if (src) return
+    const key = `potion_${slug}`
+    if (imageCache.has(key)) { setSrc(imageCache.get(key)!); return }
     invoke<string>('get_potion_path', { slug })
       .then(async path => {
         if (!path) return
         const b64 = await invoke<string>('read_image_as_base64', { path })
-        if (b64) setSrc(b64)
+        if (b64) { imageCache.set(key, b64); setSrc(b64) }
       }).catch(() => {})
   }, [slug])
 
-  if (src) return <img src={src} style={{ width: size, height: size, objectFit: 'contain' }} alt="potion" />
-  return <div style={{ fontSize: '40px' }}>🧪</div>
+  if (src) return <img src={src} style={{ width: size, height: size, objectFit: 'contain' }} />
+  return <div style={{ fontSize: `${size * 0.75}px`, lineHeight: 1 }}>🧪</div>
 }
 
 export default function InventoryView({ onGoShop }: Props) {
@@ -166,7 +172,7 @@ export default function InventoryView({ onGoShop }: Props) {
         {selected ? (
           <>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
-              <PotionImage slug={selected.potion?.slug ?? selected.potion_id} size="44px" />
+              <PotionImage slug={selected.potion?.slug ?? selected.potion_id} size={44} />
               <div>
                 <p style={{ margin: 0, fontSize: '14px', fontWeight: 700, color: 'var(--color-text-primary)' }}>
                   {selected.potion?.name}

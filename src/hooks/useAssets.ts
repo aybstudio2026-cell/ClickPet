@@ -1,35 +1,45 @@
 import { invoke } from '@tauri-apps/api/core'
 import { usePetStore } from '../store/petStore'
 
-
-export interface PetAssetInfo {
-  slug: string
-  base_url: string
-}
+// Cache en memoria para no re-verificar en la misma sesión
+const checkedSlugs = new Set<string>()
 
 export const useAssets = () => {
   const { setDownloadingPet, removeDownloadingPet } = usePetStore()
 
   async function ensurePetAssets(
-    slug: string, 
-    zipUrl: string, 
+    slug: string,
+    zipUrl: string,
     petId?: string
   ): Promise<void> {
     if (!zipUrl) return
+
+    // Si ya verificamos este slug en esta sesión, no hacer nada
+    if (checkedSlugs.has(slug)) return
+
     try {
       const hasAssets = await invoke<boolean>('check_pet_assets', { slug })
-      if (!hasAssets) {
-        if (petId) setDownloadingPet(petId, slug, 'downloading')
-        console.log(`[Assets] Descargando ZIP de ${slug}...`)
-        await invoke('download_pet_assets', { slug, zipUrl })
-        console.log(`[Assets] Assets de ${slug} listos.`)
-        if (petId) {
-          setDownloadingPet(petId, slug, 'done')
-          setTimeout(() => removeDownloadingPet(petId), 2000)
-        }
+
+      if (hasAssets) {
+        // Ya tiene assets, marcar como verificado y no mostrar nada
+        checkedSlugs.add(slug)
+        return
       }
+
+      // No tiene assets — mostrar indicador y descargar
+      if (petId) setDownloadingPet(petId, slug, 'downloading')
+
+      await invoke('download_pet_assets', { slug, zipUrl })
+
+      checkedSlugs.add(slug)
+
+      if (petId) {
+        setDownloadingPet(petId, slug, 'done')
+        setTimeout(() => removeDownloadingPet(petId), 2000)
+      }
+
     } catch (err) {
-      console.error('Error con assets:', err)
+      console.error(`Error con assets de ${slug}:`, err)
       if (petId) setDownloadingPet(petId, slug, 'error')
     }
   }
@@ -39,7 +49,7 @@ export const useAssets = () => {
     try {
       await invoke('download_potion_image', { slug, url: imageUrl })
     } catch (err) {
-      console.error('Error descargando imagen de poción:', err)
+      console.error(`Error descargando poción ${slug}:`, err)
     }
   }
 

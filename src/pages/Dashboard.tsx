@@ -22,6 +22,7 @@ const NAV_ITEMS = [
   { id: 'ajustes',    icon: '⚙️', label: 'Ajustes' },
 ]
 
+
   interface DashboardProps {
     openTutorial: () => void
   }
@@ -37,6 +38,7 @@ export default function Dashboard({ openTutorial }: DashboardProps) {
   const [navPage, setNavPage] = useState<NavPage>('dashboard')
   const [evolveMsg, setEvolveMsg] = useState<string | null>(null)
   const [switchingPet, setSwitchingPet] = useState(false)
+  
 
   const {
     loading, ownedPets, shopPotions, shopPets,
@@ -63,18 +65,17 @@ export default function Dashboard({ openTutorial }: DashboardProps) {
     if (!activePet) return
     try {
       if (isOverlayVisible) {
-        // Pedir al overlay que sincronice antes de ocultarse
         const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow')
         const overlay = await WebviewWindow.getByLabel('overlay')
         if (overlay) {
           await overlay.emit('force-sync', {})
-          // Pequeña espera para que el sync complete
           await new Promise(r => setTimeout(r, 500))
         }
         await invoke('hide_overlay')
         setOverlayVisible(false)
       } else {
-        await invoke('show_overlay', { userPetId: activePet.id })
+        const size = localStorage.getItem('clickpet_overlay_size') ?? 'medium'
+        await invoke('show_overlay', { userPetId: activePet.id, size })
         setOverlayVisible(true)
       }
     } catch (err) { console.error(err) }
@@ -109,6 +110,8 @@ export default function Dashboard({ openTutorial }: DashboardProps) {
   const petName = ownedPets.find(p => p.id === activePet?.id)?.pet?.name ?? 'Slime'
   const displayName = (profile as any)?.username || (profile as any)?.full_name
     || profile?.email?.split('@')[0] || 'Trainer'
+
+  const activePetBaseUrl = ownedPets.find(p => p.id === activePet?.id)?.pet?.asset_base_url
 
   if (loading) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -178,14 +181,15 @@ export default function Dashboard({ openTutorial }: DashboardProps) {
 
         <div style={l.content}>
           {navPage === 'dashboard' && (
-            <DashboardView
-              activePetSlug={activePetSlug}
-              petName={petName}
-              onToggleOverlay={handleToggleOverlay}
-              onGoShop={() => setNavPage('tienda')}
-              onUsePotion={handleUsePotion}
-            />
-          )}
+  <DashboardView
+    activePetSlug={activePetSlug}
+    activePetBaseUrl={activePetBaseUrl}   // ← nuevo
+    petName={petName}
+    onToggleOverlay={handleToggleOverlay}
+    onGoShop={() => setNavPage('tienda')}
+    onUsePotion={handleUsePotion}
+  />
+)}
           {navPage === 'mascotas' && (
             <PetsView
               activePetSlug={activePetSlug}

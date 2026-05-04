@@ -2,10 +2,11 @@ import { usePetStore } from '../../store/petStore'
 import { petCardStyles as pc } from '../../styles/dashboard/petCard'
 import { statsStyles as st } from '../../styles/dashboard/stats'
 import { PET_EMOJIS, PET_STAGE_NAMES, STAGES_REQUIRED } from '../../hooks/usePetData'
-import { usePetImage } from '../../hooks/usePetImage'
+import { usePetBaseImage } from '../../hooks/usePetBaseImage'
 
 interface Props {
   activePetSlug: string
+  activePetBaseUrl?: string
   petName: string
   onToggleOverlay: () => void
   onGoShop: () => void
@@ -13,7 +14,7 @@ interface Props {
 }
 
 export default function DashboardView({
-  activePetSlug, petName, onToggleOverlay,
+  activePetSlug, activePetBaseUrl, petName, onToggleOverlay,
 }: Props) {
   const { activePet, isOverlayVisible } = usePetStore()
 
@@ -24,14 +25,15 @@ export default function DashboardView({
   const stageNames = PET_STAGE_NAMES[activePetSlug] ?? PET_STAGE_NAMES.slime
   const fallbackEmoji = (PET_EMOJIS[activePetSlug] ?? PET_EMOJIS.slime)[currentStage - 1]
 
-  const petImageSrc = usePetImage(activePetSlug, currentStage, 'idle')
+  const petImageSrc = usePetBaseImage(activePetSlug, activePetBaseUrl)
 
   return (
     <>
       <div style={pc.petCard}>
         <div style={pc.petImageBox}>
           {petImageSrc
-            ? <img src={petImageSrc} style={{ width: '90px', height: '90px', objectFit: 'contain' }} />
+            ? <img src={petImageSrc} 
+              style={{ width: '90px', height: '90px', objectFit: 'contain' }} />
             : <span style={{ fontSize: '64px' }}>{fallbackEmoji}</span>
           }
         </div>

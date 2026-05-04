@@ -1,8 +1,11 @@
+import { useState, useEffect } from 'react'
+import { invoke } from '@tauri-apps/api/core'
 import { usePetStore } from '../../store/petStore'
 import { petCardStyles as pc } from '../../styles/dashboard/petCard'
 import { layoutStyles as l } from '../../styles/dashboard/layout'
 import { OwnedPet, PET_EMOJIS, PET_STAGE_NAMES, STAGES_REQUIRED } from '../../hooks/usePetData'
-import { usePetImage } from '../../hooks/usePetImage'
+import { usePetBaseImage } from '../../hooks/usePetBaseImage'
+import { getCached, setCached } from '../../lib/imageCache'
 
 interface Props {
   activePetSlug: string
@@ -14,11 +17,16 @@ interface Props {
   onGoShop: () => void
 }
 
-// Componente para imagen de mascota en el chip pequeño
-function PetChipImage({ slug, stage }: { slug: string; stage: number }) {
-  const src = usePetImage(slug, stage, 'idle')
+function PetChipImage({ slug, stage, baseUrl }: {
+  slug: string
+  stage: number
+  baseUrl?: string
+}) {
+  const src = usePetBaseImage(slug, baseUrl)
   const fallback = (PET_EMOJIS[slug] ?? PET_EMOJIS.slime)[stage - 1]
-  if (src) return <img src={src} style={{ width: '32px', height: '32px', objectFit: 'contain' }} />
+  if (src) return (
+    <img src={src} style={{ width: '32px', height: '32px', objectFit: 'contain' }} />
+  )
   return <span style={{ fontSize: '28px' }}>{fallback}</span>
 }
 
@@ -31,23 +39,33 @@ export default function PetsView({
   const currentStage = activePet?.current_stage ?? 1
   const totalClicks = activePet?.total_clicks ?? 0
   const nextRequired = STAGES_REQUIRED[currentStage] ?? 50000
-  const progress = currentStage >= 5 ? 100 : Math.min((totalClicks / nextRequired) * 100, 100)
+  const progress = currentStage >= 5 ? 100
+    : Math.min((totalClicks / nextRequired) * 100, 100)
   const stageNames = PET_STAGE_NAMES[activePetSlug] ?? PET_STAGE_NAMES.slime
   const fallbackEmoji = (PET_EMOJIS[activePetSlug] ?? PET_EMOJIS.slime)[currentStage - 1]
   const otherPets = ownedPets.filter(p => p.id !== activePet?.id)
 
-  const activePetImageSrc = usePetImage(activePetSlug, currentStage, 'idle')
+  const activePetBaseUrl = ownedPets.find(p => p.id === activePet?.id)?.pet?.asset_base_url
+  const activePetImageSrc = usePetBaseImage(activePetSlug, activePetBaseUrl)
 
   return (
     <div style={pc.petsGrid}>
-      {/* Mascota activa */}
+
+      {/* ── Mascota activa ── */}
       <div style={pc.activePetBig}>
+
+        {/* Imagen grande */}
         <div style={pc.activePetImageBox}>
           {activePetImageSrc
-            ? <img src={activePetImageSrc} style={{ width: '120px', height: '120px', objectFit: 'contain' }} />
+            ? <img
+                src={activePetImageSrc}
+                style={{ width: '120px', height: '120px', objectFit: 'contain' }}
+              />
             : <span style={{ fontSize: '80px' }}>{fallbackEmoji}</span>
           }
         </div>
+
+        {/* Info */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
           <div style={pc.petCardTop}>
             <h3 style={pc.petCardName}>{petName}</h3>
@@ -70,15 +88,22 @@ export default function PetsView({
             </div>
           )}
         </div>
-        <button style={isOverlayVisible ? pc.btnHide : pc.btnShow} onClick={onToggleOverlay}>
+
+        {/* Botón mostrar/ocultar */}
+        <button
+          style={isOverlayVisible ? pc.btnHide : pc.btnShow}
+          onClick={onToggleOverlay}
+        >
           {isOverlayVisible ? '⏸ Ocultar' : '▶ Mostrar mascota'}
         </button>
       </div>
 
-      {/* Otras mascotas */}
+      {/* ── Panel otras mascotas ── */}
       <div style={pc.otherPetsPanel}>
-        <div style={{ fontSize: '12px', fontWeight: 600, color: '#78767B',
-          textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>
+        <div style={{
+          fontSize: '12px', fontWeight: 600, color: '#78767B',
+          textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px',
+        }}>
           Otras mascotas
         </div>
 
@@ -88,8 +113,10 @@ export default function PetsView({
             <div style={{ fontSize: '12px', color: '#78767B', lineHeight: 1.5 }}>
               No tienes más mascotas.
             </div>
-            <button style={{ ...l.btnAccent, marginTop: '4px', fontSize: '12px',
-              padding: '6px 14px', borderRadius: '999px' }} onClick={onGoShop}>
+            <button style={{
+              ...l.btnAccent, marginTop: '4px',
+              fontSize: '12px', padding: '6px 14px', borderRadius: '999px',
+            }} onClick={onGoShop}>
               Comprar en Tienda
             </button>
           </div>
@@ -102,7 +129,8 @@ export default function PetsView({
               const justDone = downloading?.progress === 'done'
 
               return (
-                <div key={pet.id}
+                <div
+                  key={pet.id}
                   style={{
                     ...pc.otherPetChip,
                     opacity: (switchingPet || isDownloading) ? 0.6 : 1,
@@ -110,8 +138,8 @@ export default function PetsView({
                     position: 'relative',
                     overflow: 'hidden',
                   }}
-                  onClick={() => !isDownloading && onSwitchPet(pet)}>
-
+                  onClick={() => !isDownloading && onSwitchPet(pet)}
+                >
                   {/* Barra de descarga animada */}
                   {isDownloading && (
                     <div style={{
@@ -127,17 +155,27 @@ export default function PetsView({
                     </div>
                   )}
 
+                  {/* Imagen chip */}
                   <div style={pc.otherPetEmoji}>
                     {isDownloading
                       ? <span style={{ fontSize: '20px' }}>⏳</span>
-                      : <PetChipImage slug={slug} stage={pet.current_stage} />
+                      : <PetChipImage
+                          slug={slug}
+                          stage={pet.current_stage}
+                          baseUrl={pet.pet?.asset_base_url}
+                        />
                     }
                   </div>
+
+                  {/* Info */}
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: '13px', fontWeight: 600, color: '#1A1A2E' }}>
                       {pet.pet?.name ?? 'Mascota'}
                     </div>
-                    <div style={{ fontSize: '11px', color: isDownloading ? '#B8C0FF' : '#78767B' }}>
+                    <div style={{
+                      fontSize: '11px',
+                      color: isDownloading ? '#B8C0FF' : '#78767B',
+                    }}>
                       {isDownloading
                         ? '⬇️ Descargando assets...'
                         : justDone
@@ -146,12 +184,18 @@ export default function PetsView({
                       }
                     </div>
                   </div>
-                  {!isDownloading && <span style={{ fontSize: '12px', color: '#B8C0FF' }}>→</span>}
+
+                  {!isDownloading && (
+                    <span style={{ fontSize: '12px', color: '#B8C0FF' }}>→</span>
+                  )}
                 </div>
               )
             })}
-            <div style={{ fontSize: '11px', color: '#B8C0FF', textAlign: 'center',
-              marginTop: '8px', cursor: 'pointer' }} onClick={onGoShop}>
+
+            <div style={{
+              fontSize: '11px', color: '#B8C0FF',
+              textAlign: 'center', marginTop: '8px', cursor: 'pointer',
+            }} onClick={onGoShop}>
               + Conseguir más mascotas
             </div>
           </>
