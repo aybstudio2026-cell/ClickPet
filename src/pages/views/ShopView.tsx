@@ -8,6 +8,7 @@ import { ShopItem, ShopPotion, ShopPet, PET_EMOJIS } from '../../hooks/usePetDat
 import { useAssets } from '../../hooks/useAssets'
 import { usePetBaseImage } from '../../hooks/usePetBaseImage'
 import { getCached, setCached } from '../../lib/imageCache'
+import { FlaskConical, PawPrint } from 'lucide-react'
 
 interface Props {
   shopPotions: ShopPotion[]
@@ -95,6 +96,7 @@ export default function ShopView({
           })
           if (error) throw error
         }
+
         const addedQty = (selected as ShopPotion).pack_size * qty
         const existing = potions.find(p => p.potion_id === selected.id)
         if (existing) {
@@ -105,12 +107,36 @@ export default function ShopView({
           ))
         } else {
           const { data: { user } } = await supabase.auth.getUser()
-          if (user) setPotions([...potions, {
-            id: crypto.randomUUID(),
-            user_id: user.id,
-            potion_id: selected.id,
-            quantity: addedQty,
-          }])
+          if (user) {
+            const newPotion = {
+              id: crypto.randomUUID(),
+              user_id: user.id,
+              potion_id: selected.id,
+              quantity: addedQty,
+              // ← Incluir datos de la poción para que el inventario muestre imagen
+              potion: {
+                name: selected.name,
+                slug: selected.slug,
+                click_bonus: (selected as ShopPotion).click_bonus,
+                pack_size: (selected as ShopPotion).pack_size,
+              }
+            }
+            setPotions([...potions, newPotion])
+
+            // ← Descargar imagen si no está en cache
+            if ((selected as ShopPotion).image_url) {
+              invoke('download_potion_image', {
+                slug: selected.slug,
+                url: (selected as ShopPotion).image_url,
+              }).then(async (path) => {
+                if (!path) return
+                const b64 = await invoke<string>('read_image_as_base64', { path: path as string })
+                if (b64) {
+                  setCached(`potion_${selected.slug}`, b64)
+                }
+              }).catch(() => {})
+            }
+          }
         }
         showMsg('✅ ¡Comprado!', true)
       }
@@ -285,13 +311,25 @@ export default function ShopView({
               style={{ ...sh.shopTab, ...(shopTab === 'pociones' ? sh.shopTabActive : {}) }}
               onClick={() => setShopTab('pociones')}
             >
-              🧪 Pociones
+              <FlaskConical
+                size={14}
+                strokeWidth={2}
+                color={shopTab === 'pociones' ? '#2D3A8C' : '#78767B'}
+                style={{ marginRight: '6px', verticalAlign: 'middle' }}
+              />
+              Pociones
             </button>
             <button
               style={{ ...sh.shopTab, ...(shopTab === 'mascotas' ? sh.shopTabActive : {}) }}
               onClick={() => setShopTab('mascotas')}
             >
-              🐾 Mascotas
+              <PawPrint
+                size={14}
+                strokeWidth={2}
+                color={shopTab === 'mascotas' ? '#2D3A8C' : '#78767B'}
+                style={{ marginRight: '6px', verticalAlign: 'middle' }}
+              />
+              Mascotas
             </button>
           </div>
 

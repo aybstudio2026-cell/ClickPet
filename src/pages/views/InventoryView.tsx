@@ -3,6 +3,9 @@ import { invoke } from '@tauri-apps/api/core'
 import { supabaseClickpet } from '../../lib/supabase'
 import { usePetStore, calcStage } from '../../store/petStore'
 import { inventoryStyles as iv } from '../../styles/dashboard/inventory'
+import { getCached, setCached } from '../../lib/imageCache'
+import { FlaskConical } from 'lucide-react'
+import { layoutStyles as l } from '../../styles/dashboard/layout'
 
 interface Props {
   onGoShop: () => void
@@ -11,21 +14,43 @@ interface Props {
 const imageCache = new Map<string, string>()
 
 function PotionImage({ slug, size = 52 }: { slug: string; size?: number }) {
-  const [src, setSrc] = useState<string | null>(() => imageCache.get(`potion_${slug}`) ?? null)
+  const cacheKey = `potion_${slug}`
+  const [src, setSrc] = useState<string | null>(() => getCached(cacheKey))
 
   useEffect(() => {
-    if (src) return
-    const key = `potion_${slug}`
-    if (imageCache.has(key)) { setSrc(imageCache.get(key)!); return }
+    if (getCached(cacheKey)) {
+      setSrc(getCached(cacheKey))
+      return
+    }
+
+    // Si no está en cache, intentar cargar desde disco
     invoke<string>('get_potion_path', { slug })
       .then(async path => {
         if (!path) return
         const b64 = await invoke<string>('read_image_as_base64', { path })
-        if (b64) { imageCache.set(key, b64); setSrc(b64) }
+        if (b64) {
+          setCached(cacheKey, b64)
+          setSrc(b64)
+        }
       }).catch(() => {})
   }, [slug])
 
-  if (src) return <img src={src} style={{ width: size, height: size, objectFit: 'contain' }} />
+  // Polling para cuando la imagen se descarga después de comprar
+  useEffect(() => {
+    if (src) return // ya tiene imagen, no necesita polling
+    const interval = setInterval(() => {
+      const cached = getCached(cacheKey)
+      if (cached) {
+        setSrc(cached)
+        clearInterval(interval)
+      }
+    }, 500)
+    return () => clearInterval(interval)
+  }, [slug, src])
+
+  if (src) return (
+    <img src={src} style={{ width: size, height: size, objectFit: 'contain' }} />
+  )
   return <div style={{ fontSize: `${size * 0.75}px`, lineHeight: 1 }}>🧪</div>
 }
 
@@ -105,7 +130,7 @@ export default function InventoryView({ onGoShop }: Props) {
 
   if (totalPotions === 0) return (
     <div style={iv.container}>
-      <h3 style={iv.title}>Mi Inventario</h3>
+     <h3 style={l.sectionTitle}>Mi Inventario</h3>
       <div style={iv.emptyBox}>
         <div style={{ fontSize: '64px', marginBottom: '16px' }}>🎒</div>
         <p style={{ fontSize: '15px', color: 'var(--color-text-secondary)', margin: '0 0 20px', fontWeight: 500 }}>
@@ -120,12 +145,20 @@ export default function InventoryView({ onGoShop }: Props) {
     <div style={iv.container}>
       {/* Header */}
       <div style={iv.header}>
-        <h3 style={iv.title}>Mi Inventario</h3>
+        <h3 style={l.sectionTitle}>Mi Inventario</h3>
         <span style={iv.totalBadge}>{totalPotions} objetos</span>
       </div>
 
       <div style={iv.tabsRow}>
-        <button style={iv.tabActive}>Pociones</button>
+        <button style={iv.tabActive}>
+          <FlaskConical
+            size={13}
+            strokeWidth={2}
+            color="#2D3A8C"
+            style={{ marginRight: '6px', verticalAlign: 'middle' }}
+          />
+          Pociones
+        </button>
       </div>
 
       {/* Grid */}

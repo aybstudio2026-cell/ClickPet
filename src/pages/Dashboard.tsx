@@ -11,15 +11,20 @@ import PetsView from './views/PetsView'
 import InventoryView from './views/InventoryView'
 import ShopView from './views/ShopView'
 import SettingsView from './views/SettingsView'
+import {
+  LayoutDashboard, PawPrint, FlaskConical,
+  ShoppingCart, Settings, LogOut,
+} from 'lucide-react'
+import logo from '../assets/logo.png'
 
 type NavPage = 'dashboard' | 'mascotas' | 'inventario' | 'tienda' | 'ajustes'
 
 const NAV_ITEMS = [
-  { id: 'dashboard',  icon: '🏠', label: 'Dashboard' },
-  { id: 'mascotas',   icon: '🐾', label: 'Mis Mascotas' },
-  { id: 'inventario', icon: '🎒', label: 'Mi Inventario' },
-  { id: 'tienda',     icon: '🛒', label: 'Tienda' },
-  { id: 'ajustes',    icon: '⚙️', label: 'Ajustes' },
+  { id: 'dashboard',  icon: LayoutDashboard, label: 'Dashboard'    },
+  { id: 'mascotas',   icon: PawPrint,        label: 'Mis Mascotas' },
+  { id: 'inventario', icon: FlaskConical,    label: 'Mi Inventario'},
+  { id: 'tienda',     icon: ShoppingCart,    label: 'Tienda'       },
+  { id: 'ajustes',    icon: Settings,        label: 'Ajustes'      },
 ]
 
 
@@ -127,24 +132,52 @@ export default function Dashboard({ openTutorial }: DashboardProps) {
 
       {/* Sidebar */}
       <aside style={l.sidebar} data-tauri-drag-region>
+        {/* Logo */}
         <div style={l.sidebarLogo}>
-          <div style={l.sidebarLogoIcon}>🐾</div>
+          <div style={l.sidebarLogoIcon}>
+            <img src={logo} style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: '8px' }} />
+          </div>
           <span style={l.sidebarLogoText}>ClickPet</span>
         </div>
-        {NAV_ITEMS.map(item => (
-          <button key={item.id} style={{
-            ...l.navItem,
-            ...(navPage === item.id ? l.navItemActive : {}),
-          }} onClick={() => setNavPage(item.id as NavPage)}>
-            <span style={l.navIcon}>{item.icon}</span>
-            {item.label}
-          </button>
-        ))}
+
+        {/* Nav items */}
+        {NAV_ITEMS.map(item => {
+          const Icon = item.icon
+          const isActive = navPage === item.id
+          return (
+            <button
+              key={item.id}
+              style={{
+                ...l.navItem,
+                ...(isActive ? l.navItemActive : {}),
+              }}
+              onClick={() => setNavPage(item.id as NavPage)}
+            >
+              <Icon
+                size={16}
+                strokeWidth={2}
+                color={isActive ? '#3D4B9E' : '#78767B'}
+                style={{ flexShrink: 0 }}
+              />
+              {item.label}
+            </button>
+          )
+        })}
+
         <div style={l.navSpacer} />
         <div style={l.navDivider} />
-        <button style={{ ...l.navItem, color: '#E05C5C' }}
-          onClick={() => supabase.auth.signOut()}>
-          <span style={l.navIcon}>🚪</span>
+
+        {/* Cerrar sesión */}
+        <button
+          style={{ ...l.navItem, color: '#E05C5C' }}
+          onClick={() => supabase.auth.signOut()}
+        >
+          <LogOut
+            size={16}
+            strokeWidth={2}
+            color="#E05C5C"
+            style={{ flexShrink: 0 }}
+          />
           Cerrar sesión
         </button>
       </aside>

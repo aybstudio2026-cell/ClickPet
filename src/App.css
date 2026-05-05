@@ -10,3 +10,16 @@ html, body, #root {
   50% { transform: translateX(100%); }
   100% { transform: translateX(300%); }
 }
+
+input::-ms-reveal,
+input::-ms-clear,
+input::-webkit-contacts-auto-fill-button,
+input::-webkit-credentials-auto-fill-button {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+input[type="text"] {
+  -webkit-text-security: disc;
+}
