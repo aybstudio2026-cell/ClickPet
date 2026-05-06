@@ -3,6 +3,7 @@ import { petCardStyles as pc } from '../../styles/dashboard/petCard'
 import { statsStyles as st } from '../../styles/dashboard/stats'
 import { PET_EMOJIS, PET_STAGE_NAMES, STAGES_REQUIRED } from '../../hooks/usePetData'
 import { usePetBaseImage } from '../../hooks/usePetBaseImage'
+import { usePetStageImage } from '../../hooks/usePetStageImage'
 
 interface Props {
   activePetSlug: string
@@ -25,7 +26,7 @@ export default function DashboardView({
   const stageNames = PET_STAGE_NAMES[activePetSlug] ?? PET_STAGE_NAMES.slime
   const fallbackEmoji = (PET_EMOJIS[activePetSlug] ?? PET_EMOJIS.slime)[currentStage - 1]
 
-  const petImageSrc = usePetBaseImage(activePetSlug, activePetBaseUrl)
+  const petImageSrc = usePetStageImage(activePetSlug, currentStage, activePetBaseUrl)
 
   return (
     <>

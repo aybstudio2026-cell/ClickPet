@@ -328,6 +328,28 @@ fn start_global_click_listener(app: tauri::AppHandle) {
     });
 }
 
+#[tauri::command]
+fn get_stage_image_path(app: tauri::AppHandle, slug: String, stage: u8) -> String {
+    let path = get_assets_dir(&app)
+        .join(&slug)
+        .join(format!("stage{}", stage))
+        .join(format!("stage{}.png", stage));
+
+    if path.exists() {
+        path.to_string_lossy().to_string()
+    } else {
+        // Fallback a base.png si no existe la imagen del stage
+        let base_path = get_assets_dir(&app)
+            .join(&slug)
+            .join("base.png");
+        if base_path.exists() {
+            base_path.to_string_lossy().to_string()
+        } else {
+            String::new()
+        }
+    }
+}
+
 // ── Setup ─────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -350,6 +372,7 @@ pub fn run() {
             download_pet_assets,
             download_pet_base_image,
             get_pet_base_path,
+            get_stage_image_path,
             download_potion_image,
             get_asset_path,
             get_potion_path,

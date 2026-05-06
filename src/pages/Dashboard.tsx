@@ -13,7 +13,7 @@ import ShopView from './views/ShopView'
 import SettingsView from './views/SettingsView'
 import {
   LayoutDashboard, PawPrint, FlaskConical,
-  ShoppingCart, Settings, LogOut,
+  ShoppingCart, Settings, LogOut, Minus, X,
 } from 'lucide-react'
 import logo from '../assets/logo.png'
 
@@ -167,17 +167,11 @@ export default function Dashboard({ openTutorial }: DashboardProps) {
         <div style={l.navSpacer} />
         <div style={l.navDivider} />
 
-        {/* Cerrar sesión */}
         <button
           style={{ ...l.navItem, color: '#E05C5C' }}
           onClick={() => supabase.auth.signOut()}
         >
-          <LogOut
-            size={16}
-            strokeWidth={2}
-            color="#E05C5C"
-            style={{ flexShrink: 0 }}
-          />
+          <LogOut size={16} strokeWidth={2} color="#E05C5C" style={{ flexShrink: 0 }} />
           Cerrar sesión
         </button>
       </aside>
@@ -194,20 +188,44 @@ export default function Dashboard({ openTutorial }: DashboardProps) {
               })}
             </p>
           </div>
-          {/* Balance estilo A&B con ícono rayo */}
-          <div style={l.balancePill}>
-            <div style={l.balanceIcon}>
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path d="M9 1L2 9.5H7.5L7 15L14 6.5H8.5L9 1Z"
-                  fill="#4CAF82" stroke="#4CAF82" strokeWidth="0.5"
-                  strokeLinejoin="round"/>
-              </svg>
-            </div>
-            <div>
-              <div style={l.balanceLabel}>Balance</div>
-              <div style={l.balanceAmount}>
-                {(profile?.balance ?? 0).toLocaleString()} COINS
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            {/* Balance */}
+            <div style={l.balancePill}>
+              <div style={l.balanceIcon}>
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <path d="M9 1L2 9.5H7.5L7 15L14 6.5H8.5L9 1Z"
+                    fill="#4CAF82" stroke="#4CAF82" strokeWidth="0.5"
+                    strokeLinejoin="round"/>
+                </svg>
               </div>
+              <div>
+                <div style={l.balanceLabel}>Balance</div>
+                <div style={l.balanceAmount}>
+                  {(profile?.balance ?? 0).toLocaleString()} COINS
+                </div>
+              </div>
+            </div>
+
+            {/* Botones de ventana */}
+            <div style={{ display: 'flex', gap: '6px' }}>
+              <button
+                style={winBtn}
+                title="Minimizar"
+                onClick={async () => {
+                  const { Window } = await import('@tauri-apps/api/window')
+                  Window.getCurrent().minimize()
+                }}
+              >
+                <Minus size={12} strokeWidth={2.5} color="#78767B" />
+              </button>
+              <button
+                style={{ ...winBtn, background: '#FFE5E5' }}
+                title="Cerrar"
+                onClick={() => invoke('close_app')}
+              >
+                <X size={12} strokeWidth={2.5} color="#E05C5C" />
+              </button>
             </div>
           </div>
         </div>
@@ -255,4 +273,13 @@ export default function Dashboard({ openTutorial }: DashboardProps) {
       </main>
     </div>
   )
+}
+
+const winBtn: React.CSSProperties = {
+  width: '28px', height: '28px',
+  borderRadius: '8px', border: 'none',
+  background: '#F4F3FA', cursor: 'pointer',
+  display: 'flex', alignItems: 'center',
+  justifyContent: 'center', flexShrink: 0,
+  transition: 'background 0.15s',
 }

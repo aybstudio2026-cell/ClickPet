@@ -6,6 +6,7 @@ import { layoutStyles as l } from '../../styles/dashboard/layout'
 import { OwnedPet, PET_EMOJIS, PET_STAGE_NAMES, STAGES_REQUIRED } from '../../hooks/usePetData'
 import { usePetBaseImage } from '../../hooks/usePetBaseImage'
 import { getCached, setCached } from '../../lib/imageCache'
+import { usePetStageImage } from '../../hooks/usePetStageImage'
 
 interface Props {
   activePetSlug: string
@@ -18,11 +19,9 @@ interface Props {
 }
 
 function PetChipImage({ slug, stage, baseUrl }: {
-  slug: string
-  stage: number
-  baseUrl?: string
+  slug: string; stage: number; baseUrl?: string
 }) {
-  const src = usePetBaseImage(slug, baseUrl)
+  const src = usePetStageImage(slug, stage, baseUrl)
   const fallback = (PET_EMOJIS[slug] ?? PET_EMOJIS.slime)[stage - 1]
   if (src) return (
     <img src={src} style={{ width: '32px', height: '32px', objectFit: 'contain' }} />
@@ -46,7 +45,7 @@ export default function PetsView({
   const otherPets = ownedPets.filter(p => p.id !== activePet?.id)
 
   const activePetBaseUrl = ownedPets.find(p => p.id === activePet?.id)?.pet?.asset_base_url
-  const activePetImageSrc = usePetBaseImage(activePetSlug, activePetBaseUrl)
+  const activePetImageSrc = usePetStageImage(activePetSlug, currentStage, activePetBaseUrl)
 
   return (
     <div style={pc.petsGrid}>
@@ -88,14 +87,6 @@ export default function PetsView({
             </div>
           )}
         </div>
-
-        {/* Botón mostrar/ocultar */}
-        <button
-          style={isOverlayVisible ? pc.btnHide : pc.btnShow}
-          onClick={onToggleOverlay}
-        >
-          {isOverlayVisible ? '⏸ Ocultar' : '▶ Mostrar mascota'}
-        </button>
       </div>
 
       {/* ── Panel otras mascotas ── */}
